@@ -6,7 +6,7 @@ import scipy.sparse as sp
 import torch
 from torch.utils.data import Dataset
 
-from utils import adj_matrix_to_edge_index
+from utils import adj_matrix_to_edge_index, matrix2dict
 
 
 class MyDataset(Dataset):
@@ -66,8 +66,6 @@ class MyData(object):
     def load_data(self):
         # 加载实体   法案立法者与国会届次相关, 主题委员会党派与国会届次无关
         # 国会届次 102-116
-
-
         self.cid_list = np.load(os.path.join(self.load_path, 'cid_list.npy'), allow_pickle=True).tolist()
         # 时间窗口起始点 102-112
         self.cidstart_list = np.load(os.path.join(self.load_path, 'cidstart_list.npy'), allow_pickle=True).tolist()
@@ -99,26 +97,26 @@ class MyData(object):
         self.party_list = np.load(os.path.join(self.load_path, 'party_list.npy'), allow_pickle=True).tolist()
 
         # 加载边关系领接矩阵
-        cosponsor_network_sparse = sp.load_npz(os.path.join(self.load_path, 'cosponsor_network_sparse.npz'))
-        subject_network_sparse = sp.load_npz(os.path.join(self.load_path, 'subject_network_sparse.npz'))
-        committee_network_sparse = sp.load_npz(os.path.join(self.load_path, 'committee_network_sparse.npz'))
-        twitter_network_sparse = sp.load_npz(os.path.join(self.load_path, 'twitter_network_sparse.npz'))
-        party_network_sparse = sp.load_npz(os.path.join(self.load_path, 'party_network_sparse.npz'))
+        self.cosponsor_network_sparse = sp.load_npz(os.path.join(self.load_path, 'cosponsor_network_sparse.npz'))
+        self.subject_network_sparse = sp.load_npz(os.path.join(self.load_path, 'subject_network_sparse.npz'))
+        self.committee_network_sparse = sp.load_npz(os.path.join(self.load_path, 'committee_network_sparse.npz'))
+        self.twitter_network_sparse = sp.load_npz(os.path.join(self.load_path, 'twitter_network_sparse.npz'))
+        self.party_network_sparse = sp.load_npz(os.path.join(self.load_path, 'party_network_sparse.npz'))
 
-        self.cosponsor_network = np.asmatrix(cosponsor_network_sparse.toarray())
-        self.subject_network = np.asmatrix(subject_network_sparse.toarray())
-        self.committee_network = np.asmatrix(committee_network_sparse.toarray())
-        self.twitter_network = np.asmatrix(twitter_network_sparse.toarray())
-        self.party_network = np.asmatrix(party_network_sparse.toarray())
+        self.bill2cosponsers = matrix2dict(self.cosponsor_network_sparse)
+        self.bill2subjects = matrix2dict(self.subject_network_sparse)
+
+        # self.cosponsor_network = np.asmatrix(cosponsor_network_sparse.toarray())  # 11639, 11639
+        # self.subject_network = np.asmatrix(subject_network_sparse.toarray())
+        # self.committee_network = np.asmatrix(committee_network_sparse.toarray())
+        # self.twitter_network = np.asmatrix(twitter_network_sparse.toarray())
+        # self.party_network = np.asmatrix(party_network_sparse.toarray())
 
         # 加载label相关
         self.vid_results_dict = np.load(os.path.join(self.load_path, 'vid_results_dict.npy'),
                                         allow_pickle=True).item()  # 法案-投票记录
         self.index_results_dict = np.load(os.path.join(self.load_path, 'index_results_dict.npy'),
                                           allow_pickle=True).item()  # 法案-投票记录(实体id替换为 node_list的index)
-
-        vid = 'h298-105.1998'
-        results = self.vid_results_dict[vid]
 
 
     def build_graph(self):

@@ -13,7 +13,7 @@ from sklearn.metrics import f1_score, recall_score, precision_score, roc_auc_sco
 from torch.utils.data import DataLoader, SubsetRandomSampler, Dataset
 
 from data import MyData
-from model import rgcn_bert
+from model import RGCN_Merge
 from train import Trainer
 from time import time
 
@@ -37,11 +37,12 @@ if __name__ == '__main__':
     # Dataset and Model
     start = time()
     myData = MyData(args.data_path)
-    model = rgcn_bert(num_users=len(myData.node_list) + 2,
-                      embedding_size=64,
-                      hidden_size=128,
-                      output_size=64
-                      )
+    model = RGCN_Merge(num_nodes=len(myData.node_list) + 2,
+                       input_size=64,
+                       hidden_size=128,
+                       output_size=64,
+                       num_relations=max(myData.edge_type_combined.data) + 1
+                       )
     model = model.to(args.device)
 
     # Train

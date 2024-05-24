@@ -7,12 +7,12 @@ from tqdm import tqdm
 from time import time
 
 from data import MyData
-from model import rgcn_bert
+from model import RGCN_Merge
 from utils import EarlyStopping
 
 
 class Trainer(object):
-    def __init__(self, model: rgcn_bert, data: MyData, args):
+    def __init__(self, model: RGCN_Merge, data: MyData, args):
         self.model = model
         self.data = data
         self.device = args.device
@@ -68,7 +68,7 @@ class Trainer(object):
         for epoch in range(self.epochs):
             # train
             train_result = self.train_one_epoch(train_loader, epoch)
-            if (epoch+1) % 20 ==0:
+            if (epoch+1) % 5 ==0:
                 print('[Train] epoch: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (epoch,
                                                                                        train_result['acc'],
                                                                                        train_result['f1'],
