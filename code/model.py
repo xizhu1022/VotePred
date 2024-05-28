@@ -38,7 +38,7 @@ class FFNN(nn.Module):
 
     def forward(self, left_embeddings, right_embeddings, legistor_embeddings):
         x = torch.cat([left_embeddings, right_embeddings, legistor_embeddings], dim=1)
-        x = x.float()
+
         x = self.fc1(x)
         x = self.act(x)
         x = self.fc2(x)
@@ -67,7 +67,10 @@ class RGCNModel(nn.Module):
 
 
 class DualAttention(nn.Module):
-    def __init__(self, d_model, num_heads, dropout):
+    def __init__(self,
+                 d_model,
+                 num_heads,
+                 dropout):
         super(DualAttention, self).__init__()
         self.dropout = dropout
         self.n_head = num_heads
@@ -86,21 +89,27 @@ class DualAttention(nn.Module):
         sponser_embeddings = node_embeddings[sponser_idx].transpose(0, 1)  # (num_sponsers, bsz, dim)
         subject_embeddings = node_embeddings[subject_idx].transpose(0, 1)  # (num_subjects, bsz, dim)
 
+        # sponser_masks = sponser_masks.transpose(0, 1)
+        # subject_masks = subject_masks.transpose(0, 1)
+
         left_embeddings, left_weights = self.left_attn(query=bill_embeddings,
                                                        key=sponser_embeddings,
                                                        value=sponser_embeddings,
-                                                       key_padding_mask=False,
-                                                       need_weights=True,
-                                                       attn_mask=sponser_masks)
+                                                       key_padding_mask=sponser_masks,  # (bsz, num_sponsers)
+                                                       need_weights=True)
+        # (1, bsz, dim), (bsz, 1, num_sponsers)
 
         right_embeddings, right_weights = self.right_attn(query=bill_embeddings,
                                                           key=subject_embeddings,
                                                           value=subject_embeddings,
-                                                          key_padding_mask=False,
-                                                          need_weights=True,
-                                                          attn_mask=subject_masks)
+                                                          key_padding_mask=subject_masks,
+                                                          need_weights=True)
+
         left_embeddings = left_embeddings.squeeze(0)  # (bsz, dim)
         right_embeddings = right_embeddings.squeeze(0)  # (bsz, dim)
+
+        left_weights = left_weights.squeeze(1)
+        right_weight = right_weights.squeeze(1)
 
         return left_embeddings, right_embeddings
 
@@ -127,7 +136,9 @@ class RGCN_DualAttn_FFNN(nn.Module):
 
         self.RGCNModel = RGCNModel(in_channels=self.dim,
                                    out_channels=self.dim,
-                                   num_relations=self.num_relations)
+                                   num_relations=self.num_relations,
+                                   edge_index=self.edge_index,
+                                   edge_type=self.edge_type)
 
         self.DualAttn = DualAttention(d_model=self.dim,
                                       num_heads=self.n_head,
@@ -135,23 +146,37 @@ class RGCN_DualAttn_FFNN(nn.Module):
 
         self.FFNN = FFNN(input_dim=self.dim * 3)
 
-    def forward(self, legis_idx, bill_idx, sponser_idx, subject_idx, sponser_masks, subject_masks):
-        # TODO: Check inputs
-        node_embeddings = self.RGCNModel(x=self.node_embeddings)
-        legis_embeddings = node_embeddings[legis_idx]
-        left_embeddings, right_embeddings = self.DualAttn(node_embeddings=node_embeddings,
-                                                          bill_idx=bill_idx,
-                                                          sponser_idx=sponser_idx,
-                                                          subject_idx=subject_idx,
-                                                          sponser_masks=sponser_masks,
-                                                          subject_masks=subject_masks)
-        scores = self.FFNN(left_embeddings=left_embeddings,
-                           right_embeddings=right_embeddings,
-                           legistor_embeddings=legis_embeddings)
+        self.initialize()
 
-        scores = scores.squeeze(-1).cpu().tolist()
-        pos_scores = scores[: len(scores)//2]
-        neg_scores = scores[len(scores)//2:]
+    def initialize(self):
+        nn.init.xavier_normal_(self.node_embeddings)
+
+    def forward(self, batch):
+        # TODO: Check inputs
+        # bsz, data_len = batch.shape
+        vid_index_batch, pos_index_batch, neg_index_batch = batch[:, 0], batch[:, 1], batch[:, 2]
+        subject_batch, cosponser_batch = batch[:, 3:33], batch[:, 33:]
+        subject_masks, cosponser_masks = subject_batch == 0, cosponser_batch == 0
+
+        node_embeddings = self.RGCNModel(x=self.node_embeddings)  # (num_nodes, dim)
+        pos_legis_embeddings = node_embeddings[pos_index_batch]
+        neg_legis_embeddings = node_embeddings[neg_index_batch]
+        left_embeddings, right_embeddings = self.DualAttn(node_embeddings=node_embeddings,
+                                                          bill_idx=vid_index_batch,
+                                                          sponser_idx=cosponser_batch,
+                                                          subject_idx=subject_batch,
+                                                          sponser_masks=cosponser_masks,
+                                                          subject_masks=subject_masks)
+        pos_scores = self.FFNN(left_embeddings=left_embeddings,
+                               right_embeddings=right_embeddings,
+                               legistor_embeddings=pos_legis_embeddings)
+
+        neg_scores = self.FFNN(left_embeddings=left_embeddings,
+                               right_embeddings=right_embeddings,
+                               legistor_embeddings=neg_legis_embeddings)
+
+        pos_scores = pos_scores.squeeze(-1)
+        neg_scores = neg_scores.squeeze(-1)
 
         return cal_loss(pos_scores, neg_scores)
 

@@ -13,7 +13,7 @@ from sklearn.metrics import f1_score, recall_score, precision_score, roc_auc_sco
 from torch.utils.data import DataLoader, SubsetRandomSampler, Dataset
 
 from data import MyData
-from model import RGCN_Merge
+from model import RGCN_Merge, RGCN_DualAttn_FFNN
 from train import Trainer
 from time import time
 
@@ -21,28 +21,47 @@ from time import time
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Set args', add_help=False)
 
-    parser.add_argument('--data_path', type=str, default='../data_0510', help='data path')
+    parser.add_argument('--data_path', type=str, default='../data_0528', help='data path')
     parser.add_argument('--model_path', type=str, default='../saves', help='model path')
     parser.add_argument('--gpu', type=int, default=1, help='gpu_id')
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
     parser.add_argument('--epochs', type=int, default=200, help='epochs')
     parser.add_argument('--patience', type=int, default=10, help='patience')
+    parser.add_argument('--num_heads', type=int, default=2, help='num_heads')
+    parser.add_argument('--dropout', type=float, default=0.0, help='dropout')
     parser.add_argument('--train_batch_size', type=int, default=128, help='train_batch_size')
     parser.add_argument('--test_batch_size', type=int, default=64, help='test_batch_size')
+    parser.add_argument('--embedding_size', type=int, default=64, help='embedding_size')
+    parser.add_argument('--model_name', type=str, default='RGCN_DualAttn_FFNN', help='model_name')
 
     args = parser.parse_args()
 
+    # Device
     args.device = torch.device('cuda:{}'.format(args.gpu))
 
     # Dataset and Model
     start = time()
     myData = MyData(args.data_path)
-    model = RGCN_Merge(num_nodes=len(myData.node_list) + 2,
-                       input_size=64,
-                       hidden_size=128,
-                       output_size=64,
-                       num_relations=max(myData.edge_type_combined.data) + 1
-                       )
+    if args.model_name == 'RGCN_DualAttn_FFNN':
+        model = RGCN_DualAttn_FFNN(
+            dim=args.embedding_size,
+            num_nodes=len(myData.node_list),
+            num_relations=max(myData.edge_type_combined.data).item() + 1,
+            edge_index=myData.edge_index_combined.to(args.device),
+            edge_type=myData.edge_type_combined.to(args.device),
+            num_heads=args.num_heads,
+            dropout=args.dropout
+        )
+    elif args.model_name == 'RGCN_Merge':
+        model = RGCN_Merge(
+            num_nodes=len(myData.node_list),
+            input_size=args.embedding_size,
+            hidden_size=args.embedding_size,
+            output_size=args.embedding_size,
+            num_relations=max(myData.edge_type_combined.data) + 1
+            )
+    else:
+        raise NotImplementedError
     model = model.to(args.device)
 
     # Train
