@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch_geometric.nn import RGCNConv
 
+from hgb import myGAT
 from utils import cal_loss
 
 
@@ -84,8 +86,6 @@ class DualAttention(nn.Module):
 
     def forward(self, node_embeddings, bill_idx, sponser_idx, subject_idx, sponser_masks, subject_masks):
         bill_embeddings = node_embeddings[bill_idx].unsqueeze(0)  # (1, bsz, dim)
-        # sponsers = self.bill2cosponsers[bill_index]
-        # subjects = self.bill2subjects[bill_index]
         sponser_embeddings = node_embeddings[sponser_idx].transpose(0, 1)  # (num_sponsers, bsz, dim)
         subject_embeddings = node_embeddings[subject_idx].transpose(0, 1)  # (num_subjects, bsz, dim)
 
@@ -117,16 +117,20 @@ class DualAttention(nn.Module):
 class RGCN_DualAttn_FFNN(nn.Module):
     def __init__(self,
                  dim,
+                 graph,
                  num_nodes,
                  num_relations,
+                 num_layers,
                  edge_index,
                  edge_type,
                  num_heads,
                  dropout):
         super(RGCN_DualAttn_FFNN, self).__init__()
         self.dim = dim
+        self.graph = graph
         self.num_nodes = num_nodes
         self.num_relations = num_relations
+        self.num_layers = num_layers
         self.edge_index = edge_index
         self.edge_type = edge_type
         self.n_head = num_heads
@@ -134,11 +138,30 @@ class RGCN_DualAttn_FFNN(nn.Module):
 
         self.node_embeddings = nn.Parameter(torch.FloatTensor(self.num_nodes, self.dim))
 
-        self.RGCNModel = RGCNModel(in_channels=self.dim,
-                                   out_channels=self.dim,
-                                   num_relations=self.num_relations,
-                                   edge_index=self.edge_index,
-                                   edge_type=self.edge_type)
+        # self.g =
+
+        self.pre_encoder = 'HGB'
+        if self.pre_encoder == 'HGB':
+            self.HGB = myGAT(g=self.graph,
+                             edge_dim=self.dim,
+                             num_etypes=self.num_relations,
+                             in_dims=[self.dim],
+                             num_hidden=self.dim,
+                             num_layers=self.num_layers,
+                             heads=[self.n_head] * self.num_layers,
+                             activation=F.relu,
+                             feat_drop=0.0,
+                             attn_drop=0.0,
+                             negative_slope=0.2,
+                             residual=False,
+                             alpha=0.05)
+
+        elif self.pre_encoder == 'RGCN':
+            self.RGCN = RGCNModel(in_channels=self.dim,
+                                  out_channels=self.dim,
+                                  num_relations=self.num_relations,
+                                  edge_index=self.edge_index,
+                                  edge_type=self.edge_type)
 
         self.DualAttn = DualAttention(d_model=self.dim,
                                       num_heads=self.n_head,
@@ -157,16 +180,25 @@ class RGCN_DualAttn_FFNN(nn.Module):
         vid_index_batch, pos_index_batch, neg_index_batch = batch[:, 0], batch[:, 1], batch[:, 2]
         subject_batch, cosponser_batch = batch[:, 3:33], batch[:, 33:]
         subject_masks, cosponser_masks = subject_batch == 0, cosponser_batch == 0
+        if self.pre_encoder == 'RGCN':
+            node_embeddings = self.RGCN(x=self.node_embeddings)  # (num_nodes, dim)
+        elif self.pre_encoder == 'HGB':
+            node_embeddings = self.HGB(features_list=[self.node_embeddings],
+                                       e_feat=self.graph.edata['etype'],
+                                       )
+        else:
+            raise NotImplementedError
 
-        node_embeddings = self.RGCNModel(x=self.node_embeddings)  # (num_nodes, dim)
         pos_legis_embeddings = node_embeddings[pos_index_batch]
         neg_legis_embeddings = node_embeddings[neg_index_batch]
+
         left_embeddings, right_embeddings = self.DualAttn(node_embeddings=node_embeddings,
                                                           bill_idx=vid_index_batch,
                                                           sponser_idx=cosponser_batch,
                                                           subject_idx=subject_batch,
                                                           sponser_masks=cosponser_masks,
                                                           subject_masks=subject_masks)
+
         pos_scores = self.FFNN(left_embeddings=left_embeddings,
                                right_embeddings=right_embeddings,
                                legistor_embeddings=pos_legis_embeddings)
@@ -192,7 +224,7 @@ class RGCN_Merge(nn.Module):
 
         self.node_embeddings = nn.Parameter(torch.FloatTensor(self.num_nodes, self.input_size))
 
-        self.RGCNModel = RGCNModel(self.input_size, 64, self.num_relations)
+        self.HGNN = RGCNModel(self.input_size, 64, self.num_relations)
         self.affinity_score = MergeLayer(128)
 
         self.initialize()
@@ -209,7 +241,7 @@ class RGCN_Merge(nn.Module):
 
         edge_index_combined = edge_index_combined.to(device)
         edge_type_combined = edge_type_combined.to(device)
-        nodes_embeddings = self.RGCNModel(self.users_feature, edge_index_combined, edge_type_combined).to(device)
+        nodes_embeddings = self.HGNN(self.users_feature, edge_index_combined, edge_type_combined).to(device)
 
         user1_embedding = nodes_embeddings[user1_id]  # pos
         user2_embedding = nodes_embeddings[user2_id]  # neg

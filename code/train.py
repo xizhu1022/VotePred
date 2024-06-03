@@ -38,7 +38,7 @@ class Trainer(object):
             val_dataset = self.data.get_val_dataset()
             test_dataset = self.data.get_test_dataset()
 
-            run_epoch, run_result = self.run(train_dataset, val_dataset, test_dataset)
+            run_result = self.run(train_dataset, val_dataset, test_dataset)
             print('[Run] cid: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (cid,
                                                                                    run_result['acc'], run_result['f1'],
                                                                                    run_result['recall'],
@@ -69,22 +69,22 @@ class Trainer(object):
         for epoch in range(self.epochs):
             # train
             train_result = self.train_one_epoch(train_loader, epoch)
-            # if (epoch + 1) % 5 == 0:
-            #     print('[Train] epoch: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (epoch,
-            #                                                                                train_result['acc'],
-            #                                                                                train_result['f1'],
-            #                                                                                train_result['recall'],
-            #                                                                                train_result['pre'])
-            #           )
+            if (epoch + 1) % 1 == 0:
+                print('[Train] epoch: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (epoch,
+                                                                                           train_result['acc'],
+                                                                                           train_result['f1'],
+                                                                                           train_result['recall'],
+                                                                                           train_result['pre'])
+                      )
             # validate
             val_result = self.evaluate(val_loader)
-            # if (epoch + 1) % 10 == 0:
-            #     print('[Valid] epoch: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (epoch,
-            #                                                                                val_result['acc'],
-            #                                                                                val_result['f1'],
-            #                                                                                val_result['recall'],
-            #                                                                                val_result['pre'])
-            #           )
+            if (epoch + 1) % 1 == 0:
+                print('[Valid] epoch: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (epoch,
+                                                                                           val_result['acc'],
+                                                                                           val_result['f1'],
+                                                                                           val_result['recall'],
+                                                                                           val_result['pre'])
+                      )
             val_metric = val_result['f1']
             if val_metric > best_val_metric:
                 best_val_metric = val_metric
@@ -94,22 +94,21 @@ class Trainer(object):
                 print('Stop at epoch %d' % (epoch + 1))
                 break
 
-            # test
-            test_result = self.evaluate(test_loader)
-            if (epoch + 1) % 20 == 0:
-                print('[Test] epoch: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (epoch,
-                                                                                          test_result['acc'],
-                                                                                          test_result['f1'],
-                                                                                          test_result['recall'],
-                                                                                          test_result['pre'])
-                      )
-            test_metric = test_result['f1']
-            if test_metric > best_test_metric:
-                best_test_metric = test_metric
-                best_test_epoch = epoch
-                best_test_result = test_result
+        # test
+        test_result = self.evaluate(test_loader)
+        # print('[Test] epoch: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (epoch,
+        #                                                                           test_result['acc'],
+        #                                                                           test_result['f1'],
+        #                                                                           test_result['recall'],
+        #                                                                           test_result['pre'])
+        #       )
+        # test_metric = test_result['f1']
+        # if test_metric > best_test_metric:
+        #     best_test_metric = test_metric
+        #     best_test_epoch = epoch
+        #     best_test_result = test_result
 
-        return best_test_epoch, best_test_result
+        return test_result
 
     def train_one_epoch(self, train_loader, epoch):
         train_result = ddict(list)

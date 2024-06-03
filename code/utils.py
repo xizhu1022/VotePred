@@ -1,3 +1,4 @@
+import random
 import numpy as np
 import scipy.sparse as sp
 import torch
@@ -6,34 +7,16 @@ from collections import defaultdict
 
 from sklearn.metrics import f1_score, recall_score, precision_score, roc_auc_score
 
-class EarlyStopping:
-    def __init__(self, patience=3, delta=0, path='checkpoint_all.pt'):
-        self.patience = patience
-        self.delta = delta
-        self.path = path
-        self.counter = 0
-        self.best_score = None
-        self.early_stop = False
-
-    def __call__(self, acc_score, model):
-        score = acc_score
-
-        if self.best_score is None:
-            self.best_score = score
-            self.save_checkpoint(acc_score, model)
-        elif score < self.best_score + self.delta:
-            self.counter += 1
-            print(f'EarlyStopping Counter: {self.counter}/{self.patience}')
-            if self.counter >= self.patience:
-                self.early_stop = True
-        else:
-            self.best_score = score
-            self.save_checkpoint(acc_score, model)
-            self.counter = 0
-
-    def save_checkpoint(self, val_loss, model):
-        torch.save(model.state_dict(), self.path)
-        print(f'Model saved! Validation acc: {val_loss:.4f}')
+def seed_everything(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    # dgl.seed(seed)
+    # dgl.random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False  # if benchmark=True, deterministic will be False
 
 
 def laplace_transform(graph):

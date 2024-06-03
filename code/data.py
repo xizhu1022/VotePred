@@ -6,18 +6,20 @@ import scipy.sparse as sp
 import torch
 from torch.utils.data import Dataset
 
+import dgl
+
 from utils import adj_matrix_to_edge_index, matrix2dict
 
 
 class MyDataset(Dataset):
     def __init__(self,
-                 vids,
+                 bills,
                  node2index,
                  bill2results,
                  bill2cosponsers,
                  bill2subjects_tfidf,
                  num_nodes):
-        self.vids = vids  # candidate keys
+        self.bills = bills  # candidate keys
         self.node2index = node2index  # node -> index
         self.bill2results = bill2results  # bill index -> voting results
         self.bill2cosponsers = bill2cosponsers  # bill index -> cosponsers
@@ -25,28 +27,29 @@ class MyDataset(Dataset):
         self.num_nodes = num_nodes  # total number of nodes
 
     def __len__(self):
-        return len(self.vids)
+        return len(self.bills)
 
     def __getitem__(self, index):
-        vid = self.vids[index]
-        vid_index = self.node2index[vid]
+        bill = self.bills[index]
 
-        cosponsers = self.bill2cosponsers[vid_index]
-        subjects = self.bill2subjects_tfidf[vid_index]
+        cosponsers = self.bill2cosponsers[bill]
+        subjects = self.bill2subjects_tfidf[bill]
 
-        results = self.bill2results[vid]
+        results = self.bill2results[bill]
+
         candidate_pos = results["yeas"]
         candidate_neg = results['nays'] + results['absents']
+
         if len(candidate_pos) == 0:
             pos_index = self.node2index['pos_legislator']  # legislator padding saying yeas
         else:
-            pos_index = self.node2index[random.sample(candidate_pos, 1)[0]]
+            pos_index = random.sample(candidate_pos, 1)[0]
         if len(candidate_neg) == 0:
             neg_index = self.node2index['neg_legislator']  # legislator padding saying nays
         else:
-            neg_index = self.node2index[random.sample(candidate_neg, 1)[0]]
+            neg_index = random.sample(candidate_neg, 1)[0]
 
-        return vid_index, pos_index, neg_index, subjects, cosponsers
+        return bill, pos_index, neg_index, subjects, cosponsers
 
 
 def pad_collate(batch):
@@ -76,8 +79,9 @@ class MyData(object):
     def __init__(self, load_path):
         self.load_path = load_path
         self.load_data()
-        self.build_graph()
         self.num_nodes = len(self.node_list)
+        self.build_graph()
+        self.num_rels = max(self.edge_type_combined.data).item() + 1
 
     def load_data(self):
         # 加载实体   法案立法者与国会届次相关, 主题委员会党派与国会届次无关
@@ -108,9 +112,9 @@ class MyData(object):
         # 所有主题列表 1753
         self.subject_list = np.load(os.path.join(self.load_path, 'subject_list.npy'), allow_pickle=True).tolist()
         # 所有委员会列表 44
-        self.committee_list = np.load(os.path.join(self.load_path, 'committee_list.npy'), allow_pickle=True).tolist()
+        # self.committee_list = np.load(os.path.join(self.load_path, 'committee_list.npy'), allow_pickle=True).tolist()
         # 所有党派列表 3 R D I
-        self.party_list = np.load(os.path.join(self.load_path, 'party_list.npy'), allow_pickle=True).tolist()
+        # self.party_list = np.load(os.path.join(self.load_path, 'party_list.npy'), allow_pickle=True).tolist()
 
         # 加载边关系领接矩阵
         self.cosponsor_network_sparse = sp.load_npz(os.path.join(self.load_path, 'cosponsor_network_sparse.npz'))
@@ -118,6 +122,7 @@ class MyData(object):
         self.committee_network_sparse = sp.load_npz(os.path.join(self.load_path, 'committee_network_sparse.npz'))
         self.twitter_network_sparse = sp.load_npz(os.path.join(self.load_path, 'twitter_network_sparse.npz'))
         self.party_network_sparse = sp.load_npz(os.path.join(self.load_path, 'party_network_sparse.npz'))
+        self.state_network_sparse = sp.load_npz(os.path.join(self.load_path, 'state_network_sparse.npz'))
 
         self.bill2cosponsers = matrix2dict(self.cosponsor_network_sparse)
         self.bill2subjects = matrix2dict(self.subject_network_sparse)
@@ -127,15 +132,17 @@ class MyData(object):
         self.committee_network = np.asmatrix(self.committee_network_sparse.toarray())
         self.twitter_network = np.asmatrix(self.twitter_network_sparse.toarray())
         self.party_network = np.asmatrix(self.party_network_sparse.toarray())
+        self.state_network = np.asmatrix(self.state_network_sparse.toarray())
 
         # 法案-投票记录
-        self.bill2results = np.load(os.path.join(self.load_path, 'vid_results_dict.npy'), allow_pickle=True).item()
+        # self.bill2results = np.load(os.path.join(self.load_path, 'vid_results_dict.npy'), allow_pickle=True).item()
         # 法案-投票记录 (实体id替换为 node_list的index)
-        self.bill_index2results = np.load(os.path.join(self.load_path, 'index_results_dict.npy'), allow_pickle=True).item()
+        self.bill2results = np.load(os.path.join(self.load_path, 'index_results_dict.npy'), allow_pickle=True).item()
 
         self.vid_subjects_tfidf_dict = np.load(os.path.join(self.load_path, 'vid_subjects_tfidf_dict.npy'),
                                                allow_pickle=True).item()
         self.bill2subjects_tfidf = dict()
+
         for vid, subjects_rank in self.vid_subjects_tfidf_dict.items():
             subjects_index_list = [self.node2index[tuple[0]] for tuple in subjects_rank[:30]]
             bill_index = self.node2index[vid]
@@ -147,15 +154,23 @@ class MyData(object):
         edge_index2 = adj_matrix_to_edge_index(self.committee_network)
         edge_index3 = adj_matrix_to_edge_index(self.twitter_network)
         edge_index4 = adj_matrix_to_edge_index(self.party_network)
+        edge_index5 = adj_matrix_to_edge_index(self.state_network)
 
         edge_type0 = torch.zeros(edge_index0.size(1), dtype=torch.long)
         edge_type1 = torch.ones(edge_index1.size(1), dtype=torch.long)
         edge_type2 = 2 * torch.ones(edge_index2.size(1), dtype=torch.long)
         edge_type3 = 3 * torch.ones(edge_index3.size(1), dtype=torch.long)
         edge_type4 = 4 * torch.ones(edge_index4.size(1), dtype=torch.long)
+        edge_type5 = 5 * torch.ones(edge_index5.size(1), dtype=torch.long)
 
-        self.edge_index_combined = torch.cat([edge_index0, edge_index1, edge_index2, edge_index3, edge_index4], dim=1)
-        self.edge_type_combined = torch.cat([edge_type0, edge_type1, edge_type2, edge_type3, edge_type4])
+        self.edge_index_combined = torch.cat([edge_index0, edge_index1, edge_index2,
+                                              edge_index3, edge_index4, edge_index5], dim=1)
+        self.edge_type_combined = torch.cat([edge_type0, edge_type1, edge_type2,
+                                             edge_type3, edge_type4, edge_type5])
+
+        graph = dgl.graph((self.edge_index_combined[0], self.edge_index_combined[1]), num_nodes=self.num_nodes)
+        graph.edata['etype'] = self.edge_type_combined
+        self.graph = graph
 
     def get_dataset_vids(self, cidstart):
         # train data
@@ -164,6 +179,7 @@ class MyData(object):
         for cid in window[:4]:
             vids = self.cid_vids_dict[cid]
             self.train_vids += vids
+        self.train_vids = [self.node2index[_] for _ in self.train_vids]
 
         # val / test data
         cid = cidstart + 4
@@ -171,35 +187,37 @@ class MyData(object):
         random.shuffle(vids)
         val_size = len(vids) // 2
         self.val_vids, self.test_vids = vids[:val_size], vids[val_size:]
+        self.val_vids = [self.node2index[_] for _ in self.val_vids]
+        self.test_vids = [self.node2index[_] for _ in self.test_vids]
 
     def get_train_dataset(self):
         return MyDataset(
-            vids=self.train_vids,
+            bills=self.train_vids,
             node2index=self.node2index,
             bill2results=self.bill2results,
             bill2cosponsers=self.bill2cosponsers,
             bill2subjects_tfidf=self.bill2subjects_tfidf,
-            num_nodes=len(self.node_list)
+            num_nodes=self.num_nodes
         )
 
     def get_val_dataset(self):
         return MyDataset(
-            vids=self.val_vids,
+            bills=self.val_vids,
             node2index=self.node2index,
             bill2results=self.bill2results,
             bill2cosponsers=self.bill2cosponsers,
             bill2subjects_tfidf=self.bill2subjects_tfidf,
-            num_nodes=len(self.node_list)
+            num_nodes=self.num_nodes
         )
 
     def get_test_dataset(self):
         return MyDataset(
-            vids=self.test_vids,
+            bills=self.test_vids,
             node2index=self.node2index,
             bill2results=self.bill2results,
             bill2cosponsers=self.bill2cosponsers,
             bill2subjects_tfidf=self.bill2subjects_tfidf,
-            num_nodes=len(self.node_list)
+            num_nodes=self.num_nodes
         )
 
 
