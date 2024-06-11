@@ -3,9 +3,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import RGCNConv
 
-from hgb import myGAT
-from utils import cal_loss
+import numpy as np
 
+from hgb import myGAT
+from sklearn.metrics import f1_score, recall_score, precision_score, roc_auc_score
 
 class MergeLayer(nn.Module):
     def __init__(self, dim):
@@ -124,7 +125,9 @@ class RGCN_DualAttn_FFNN(nn.Module):
                  edge_index,
                  edge_type,
                  num_heads,
-                 dropout):
+                 dropout,
+                 pretrained,
+                 data):
         super(RGCN_DualAttn_FFNN, self).__init__()
         self.dim = dim
         self.graph = graph
@@ -135,10 +138,18 @@ class RGCN_DualAttn_FFNN(nn.Module):
         self.edge_type = edge_type
         self.n_head = num_heads
         self.dropout = dropout
+        self.pretrained = pretrained
+        self.data = data
+        self.negative_sample = 1
+        self.negative_sample_weight = 1
 
-        self.node_embeddings = nn.Parameter(torch.FloatTensor(self.num_nodes, self.dim))
-
-        # self.g =
+        if self.pretrained is not None:
+            self.node_embeddings = nn.Parameter(torch.FloatTensor(self.num_nodes, 768))
+            self.LinearLayer = nn.Linear(768, self.dim)
+            nn.init.normal_(self.LinearLayer.weight, mean=0, std=0.01)  # 正态分布初始化权重
+            nn.init.constant_(self.LinearLayer.bias, 0)  # 设置偏置为0
+        else:
+            self.node_embeddings = nn.Parameter(torch.FloatTensor(self.num_nodes, self.dim))
 
         self.pre_encoder = 'HGB'
         if self.pre_encoder == 'HGB':
@@ -172,7 +183,10 @@ class RGCN_DualAttn_FFNN(nn.Module):
         self.initialize()
 
     def initialize(self):
-        nn.init.xavier_normal_(self.node_embeddings)
+        if self.pretrained is not None:
+            self.node_embeddings.data.copy_(self.pretrained)
+        else:
+            nn.init.xavier_normal_(self.node_embeddings)
 
     def forward(self, batch):
         # TODO: Check inputs
@@ -180,10 +194,15 @@ class RGCN_DualAttn_FFNN(nn.Module):
         vid_index_batch, pos_index_batch, neg_index_batch = batch[:, 0], batch[:, 1], batch[:, 2]
         subject_batch, cosponser_batch = batch[:, 3:33], batch[:, 33:]
         subject_masks, cosponser_masks = subject_batch == 0, cosponser_batch == 0
+        if self.pretrained is not None:
+            x = self.LinearLayer(self.node_embeddings)
+        else:
+            x = self.node_embeddings
+
         if self.pre_encoder == 'RGCN':
-            node_embeddings = self.RGCN(x=self.node_embeddings)  # (num_nodes, dim)
+            node_embeddings = self.RGCN(x=x)  # (num_nodes, dim)
         elif self.pre_encoder == 'HGB':
-            node_embeddings = self.HGB(features_list=[self.node_embeddings],
+            node_embeddings = self.HGB(features_list=[x],
                                        e_feat=self.graph.edata['etype'],
                                        )
         else:
@@ -210,7 +229,61 @@ class RGCN_DualAttn_FFNN(nn.Module):
         pos_scores = pos_scores.squeeze(-1)
         neg_scores = neg_scores.squeeze(-1)
 
-        return cal_loss(pos_scores, neg_scores)
+        return self.cal_loss(pos_scores, neg_scores, node_embeddings)
+
+    def cal_sim_loss(self, pairs, batch_size, node_embeddings):
+        indices = np.random.permutation(len(pairs[0]))
+
+        valid_indices = list(set(list(pairs[0])+list(pairs[1])))
+        sample_indices = list(indices[:batch_size])
+        fro = list(pairs[0][sample_indices])
+        to = list(pairs[1][sample_indices])
+
+        neg = np.random.choice(valid_indices, batch_size)
+
+        loss = 0
+        for i in range(len(fro)):
+            loss += -torch.log(torch.sigmoid(torch.dot(node_embeddings[fro[i]], node_embeddings[to[i]])))
+            for j in range(self.negative_sample):
+                another = np.random.choice(valid_indices)
+                loss += -self.negative_sample_weight * (torch.log(torch.sigmoid(-1 * torch.dot(node_embeddings[fro[i]], node_embeddings[another]))))
+        loss = loss / batch_size
+        return loss
+
+    def cal_loss(self, pos_pre, neg_pre, node_embeddings):
+        batch_size = len(pos_pre)
+        # loss_1 roll call prediction
+        targets = torch.cat([torch.ones_like(pos_pre), torch.zeros_like(pos_pre)], dim=0)
+        predictions = torch.cat([pos_pre, neg_pre], dim=0)
+        loss_1 = F.binary_cross_entropy_with_logits(predictions, targets)
+
+        # loss_2 group similarity
+        loss_2 = 0
+        # committee / twitter / state / party
+        # loss_2 += self.cal_sim_loss(self.data.committee_network_pairs, batch_size, node_embeddings)
+        # loss_2 += self.cal_sim_loss(self.data.state_network_pairs, batch_size, node_embeddings)
+        # loss_2 += self.cal_sim_loss(self.data.twitter_network_pairs, batch_size, node_embeddings)
+        # loss_2 += self.cal_sim_loss(self.data.party_network_pairs, batch_size, node_embeddings)
+
+        # loss_3 sponsorship priority
+
+        # predict
+        predicted_labels = torch.round(torch.sigmoid(predictions))
+        correct = (predicted_labels == targets).sum().item()
+        accuracy = correct / targets.size(0)
+
+        f1 = f1_score(targets.detach().cpu().numpy(), predicted_labels.detach().cpu().numpy())
+        recall = recall_score(targets.detach().cpu().numpy(), predicted_labels.detach().cpu().numpy())
+        precision = precision_score(targets.detach().cpu().numpy(), predicted_labels.detach().cpu().numpy())
+        auc = roc_auc_score(targets.detach().cpu().numpy(), torch.sigmoid(predictions).detach().cpu().numpy())
+        # print(predicted_labels.detach().cpu().numpy())
+        # print(predictions.detach().cpu().numpy())
+
+        print(loss_1.item(), loss_2.item())
+
+        loss = loss_1 + 0.05 * loss_2
+
+        return loss, accuracy, f1, recall, precision, auc
 
 
 class RGCN_Merge(nn.Module):

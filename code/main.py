@@ -22,7 +22,7 @@ from time import time
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Set args', add_help=False)
 
-    parser.add_argument('--data_path', type=str, default='../data_0530', help='data path')
+    parser.add_argument('--data_path', type=str, default='../data_0609', help='data path')
     parser.add_argument('--model_path', type=str, default='../saves', help='model path')
     parser.add_argument('--gpu', type=int, default=1, help='gpu_id')
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
@@ -57,7 +57,9 @@ if __name__ == '__main__':
             edge_index=myData.edge_index_combined.to(args.device),
             edge_type=myData.edge_type_combined.to(args.device),
             num_heads=args.num_heads,
-            dropout=args.dropout
+            dropout=args.dropout,
+            pretrained = myData.pretrained_embeddings,
+            data=myData
         )
 
     elif args.model_name == 'RGCN_Merge':

@@ -52,6 +52,53 @@ class MyDataset(Dataset):
         return bill, pos_index, neg_index, subjects, cosponsers
 
 
+class MyMidDataset(Dataset):
+    def __init__(self,
+                 mids,
+                 node2index,
+                 mid2results,
+                 bill2cosponsers,
+                 bill2subjects_tfidf,
+                 num_nodes):
+        self.mids = mids  # candidate keys
+        self.node2index = node2index  # node -> index
+        self.mid2results = mid2results  # bill index -> voting results
+        self.bill2cosponsers = bill2cosponsers  # bill index -> cosponsers
+        self.bill2subjects_tfidf = bill2subjects_tfidf  # bill index -> subjects
+        self.num_nodes = num_nodes  # total number of nodes
+
+    def __len__(self):
+        return len(self.mids)
+
+    def __getitem__(self, index):
+        mid = self.mids[index]
+        results = self.mid2results[mid]
+
+        pos_bills = results["yeas"]
+        neg_bills = results['nays'] + results['absents']
+
+        if len(pos_bills) == 0:
+            pos_bill_index = self.node2index['pos_bill']
+            pos_bill_cosponsers = []
+            pos_bill_subjects = []
+        else:
+            pos_bill_index = random.sample(pos_bills, 1)[0]
+            pos_bill_cosponsers = self.bill2cosponsers[pos_bill_index]
+            pos_bill_subjects = self.bill2subjects_tfidf[pos_bill_index]
+
+        if len(neg_bills) == 0:
+            neg_bill_index = self.node2index['neg_bill']
+            neg_bill_cosponsers = []
+            neg_bill_subjects = []
+        else:
+            neg_bill_index = random.sample(neg_bills, 1)[0]
+            neg_bill_cosponsers = self.bill2cosponsers[neg_bill_index]
+            neg_bill_subjects = self.bill2subjects_tfidf[neg_bill_index]
+
+        return mid, \
+               pos_bill_index, pos_bill_cosponsers, pos_bill_subjects,\
+               neg_bill_index, neg_bill_cosponsers, neg_bill_subjects
+
 def pad_collate(batch):
     max_cosponser_len = float('-inf')
     # max_subject_len = float('-inf')
@@ -71,6 +118,47 @@ def pad_collate(batch):
         padded_subjects = np.pad(subjects, (0, 30 - len(subjects)), 'constant', constant_values=0)
         padded_cosponsers = np.pad(cosponsers, (0, max_cosponser_len - len(cosponsers)), 'constant', constant_values=0)
         new_line = [vid_index, pos_index, neg_index] + padded_subjects.tolist() + padded_cosponsers.tolist()
+        new_batch.append(new_line)
+    return torch.LongTensor(new_batch)
+
+
+def pad_collate_mids(batch):
+    max_pos_cosponser_len = float('-inf')
+    max_neg_cosponser_len = float('-inf')
+    # [1] [Pos] [Neg] [Pos_Co_L] [Neg_Co_L] [Pos_Subjects: 30] [Neg_Subjects: 30]
+    # [Pos_Cosponsers: Unlimited] [Neg_Cosponsers: Unlimited]
+    for index, line in enumerate(batch):
+        pos_bill_cosponsers, pos_bill_subjects = line[2], line[3]
+        neg_bill_cosponsers, neg_bill_subjects = line[5], line[6]
+        max_pos_cosponser_len = max(len(pos_bill_cosponsers), max_pos_cosponser_len)
+        max_neg_cosponser_len = max(len(neg_bill_cosponsers), max_neg_cosponser_len)
+
+    new_batch = []
+    for index, line in enumerate(batch):
+        mid, pos_bill_index, neg_bill_index = line[0], line[1], line[4]
+        pos_bill_cosponsers, pos_bill_subjects = line[2], line[3]
+        neg_bill_cosponsers, neg_bill_subjects = line[5], line[6]
+
+        # TODO: Standardize
+        if len(pos_bill_subjects) == 0:
+            pos_bill_subjects = np.array([1])
+        if len(neg_bill_subjects) == 0:
+            neg_bill_subjects = np.array([1])
+        if len(pos_bill_cosponsers) == 0:
+            pos_bill_cosponsers = np.array([2])
+        if len(neg_bill_cosponsers) == 0:
+            neg_bill_cosponsers = np.array([2])
+        padded_pos_subjects = np.pad(pos_bill_subjects, (0, 30 - len(pos_bill_subjects)), 'constant', constant_values=0)
+        padded_neg_subjects = np.pad(neg_bill_subjects, (0, 30 - len(neg_bill_subjects)), 'constant', constant_values=0)
+
+        padded_pos_cosponsers = np.pad(pos_bill_cosponsers, (0, max_pos_cosponser_len - len(pos_bill_cosponsers)),
+                                       'constant', constant_values=0)
+        padded_neg_cosponsers = np.pad(neg_bill_cosponsers, (0, max_neg_cosponser_len - len(neg_bill_cosponsers)),
+                                       'constant', constant_values=0)
+
+        new_line = [mid, pos_bill_index, neg_bill_index, max_pos_cosponser_len, max_neg_cosponser_len] + \
+                   padded_pos_subjects.tolist() + padded_neg_subjects.tolist() + \
+                   padded_pos_cosponsers.tolist() + padded_neg_cosponsers.tolist()
         new_batch.append(new_line)
     return torch.LongTensor(new_batch)
 
@@ -124,6 +212,11 @@ class MyData(object):
         self.party_network_sparse = sp.load_npz(os.path.join(self.load_path, 'party_network_sparse.npz'))
         self.state_network_sparse = sp.load_npz(os.path.join(self.load_path, 'state_network_sparse.npz'))
 
+        self.committee_network_pairs = self.committee_network_sparse.nonzero()
+        self.twitter_network_pairs = self.twitter_network_sparse.nonzero()
+        self.party_network_pairs = self.party_network_sparse.nonzero()
+        self.state_network_pairs = self.state_network_sparse.nonzero()
+
         self.bill2cosponsers = matrix2dict(self.cosponsor_network_sparse)
         self.bill2subjects = matrix2dict(self.subject_network_sparse)
 
@@ -138,6 +231,14 @@ class MyData(object):
         # self.bill2results = np.load(os.path.join(self.load_path, 'vid_results_dict.npy'), allow_pickle=True).item()
         # 法案-投票记录 (实体id替换为 node_list的index)
         self.bill2results = np.load(os.path.join(self.load_path, 'index_results_dict.npy'), allow_pickle=True).item()
+        mid_results_dict = np.load(os.path.join(self.load_path, 'mid_results_dict.npy'), allow_pickle=True).item()
+        self.mid2results = dict()
+        for mid, results in mid_results_dict.items():
+            mid = self.node2index[mid]
+            this_mid_dict = dict()
+            for vote, vote_list in results.items():
+                this_mid_dict[vote] = [self.node2index[_] for _ in vote_list]
+            self.mid2results[mid] = this_mid_dict
 
         self.vid_subjects_tfidf_dict = np.load(os.path.join(self.load_path, 'vid_subjects_tfidf_dict.npy'),
                                                allow_pickle=True).item()
@@ -147,6 +248,21 @@ class MyData(object):
             subjects_index_list = [self.node2index[tuple[0]] for tuple in subjects_rank[:30]]
             bill_index = self.node2index[vid]
             self.bill2subjects_tfidf[bill_index] = subjects_index_list
+
+        self.mid_embedding_dict = np.load(os.path.join(self.load_path, 'mid_embedding_dict.npy'),
+                                          allow_pickle=True).item()  # 1674
+        self.subject_embedding_dict = np.load(os.path.join(self.load_path, 'subject_embedding_dict.npy'),
+                                          allow_pickle=True).item()  # 1753
+        self.vid_embedding_dict = np.load(os.path.join(self.load_path, 'vid_embedding_dict.npy'),
+                                          allow_pickle=True).item()  # 8065
+
+        # 11 + 8165(法案)+1674(立法者)+1753(主题)
+        self.null_embeddings = torch.cat([torch.rand(768, 1) for _ in range(11)], dim=1)
+        self.mid_embeddings = torch.cat([self.mid_embedding_dict[_].reshape(-1,1) for _ in self.mid_list], dim=1)
+        self.subject_embeddings = torch.cat([self.subject_embedding_dict[_].reshape(-1,1) for _ in self.subject_list], dim=1)
+        self.vid_embeddings = torch.cat([self.vid_embedding_dict[_].reshape(-1,1) for _ in self.vid_list], dim=1)
+        self.pretrained_embeddings = torch.cat([self.null_embeddings, self.vid_embeddings, self.mid_embeddings,
+                                                self.subject_embeddings], dim=1).transpose(1,0)
 
     def build_graph(self):
         edge_index0 = adj_matrix_to_edge_index(self.cosponsor_network)
@@ -189,6 +305,54 @@ class MyData(object):
         self.val_vids, self.test_vids = vids[:val_size], vids[val_size:]
         self.val_vids = [self.node2index[_] for _ in self.val_vids]
         self.test_vids = [self.node2index[_] for _ in self.test_vids]
+
+    def get_dataset_mids(self, cidstart):
+        # train data
+        window = self.cid_window_dict[cidstart]
+        self.train_mids = []
+        for cid in window[:4]:
+            mids = self.cid_mids_dict[cid]
+            self.train_mids += mids
+        self.train_mids = [self.node2index[_] for _ in self.train_mids]
+
+        # val / test data
+        cid = cidstart + 4
+        mids = self.cid_mids_dict[cid]
+        random.shuffle(mids)
+        val_size = len(mids) // 2
+        self.val_mids, self.test_mids = mids[:val_size], mids[val_size:]
+        self.val_mids = [self.node2index[_] for _ in self.val_mids]
+        self.test_mids = [self.node2index[_] for _ in self.test_mids]
+
+    def get_train_dataset_mids(self):
+        return MyMidDataset(
+            mids=self.train_mids,
+            node2index=self.node2index,
+            mid2results=self.mid2results,
+            bill2cosponsers=self.bill2cosponsers,
+            bill2subjects_tfidf=self.bill2subjects_tfidf,
+            num_nodes=self.num_nodes
+        )
+
+    def get_val_dataset_mids(self):
+        return MyMidDataset(
+            mids=self.val_mids,
+            node2index=self.node2index,
+            mid2results=self.mid2results,
+            bill2cosponsers=self.bill2cosponsers,
+            bill2subjects_tfidf=self.bill2subjects_tfidf,
+            num_nodes=self.num_nodes
+        )
+
+    def get_test_dataset_mids(self):
+        return MyMidDataset(
+            mids=self.test_mids,
+            node2index=self.node2index,
+            mid2results=self.mid2results,
+            bill2cosponsers=self.bill2cosponsers,
+            bill2subjects_tfidf=self.bill2subjects_tfidf,
+            num_nodes=self.num_nodes
+        )
 
     def get_train_dataset(self):
         return MyDataset(

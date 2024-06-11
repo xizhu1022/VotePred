@@ -59,29 +59,6 @@ def generate_G_from_H(H):
     return G
 
 
-def cal_loss(pos_pre, neg_pre):
-    # pred: [bs, 1+neg_num]
-    targets = torch.cat([torch.ones_like(pos_pre), torch.zeros_like(pos_pre)], dim=0)
-    predictions = torch.cat([pos_pre, neg_pre], dim=0)
-    # predictions[predictions == torch.] = 0.
-    bce_loss = F.binary_cross_entropy_with_logits(predictions, targets)
-    predicted_labels = torch.round(torch.sigmoid(predictions))
-
-    correct = (predicted_labels == targets).sum().item()
-    accuracy = correct / targets.size(0)
-
-    try:
-        f1 = f1_score(targets.detach().cpu().numpy(), predicted_labels.detach().cpu().numpy())
-        recall = recall_score(targets.detach().cpu().numpy(), predicted_labels.detach().cpu().numpy())
-        precision = precision_score(targets.detach().cpu().numpy(), predicted_labels.detach().cpu().numpy())
-        auc = roc_auc_score(targets.detach().cpu().numpy(), torch.sigmoid(predictions).detach().cpu().numpy())
-    except:
-        print(predicted_labels.detach().cpu().numpy())
-        print(predictions.detach().cpu().numpy())
-
-
-    return bce_loss, accuracy, f1, recall, precision, auc
-
 
 def matrix2dict(matrix: sp.csr_matrix):
     result = defaultdict(list)
