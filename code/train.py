@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from data import MyData, pad_collate
+from data import MyData, pad_collate, pad_collate_mids
 from model import RGCN_Merge
 
 
@@ -33,10 +33,15 @@ class Trainer(object):
 
         for cid in self.cidstart_list:
             print('------------{}-------------'.format(cid))
-            self.data.get_dataset_vids(cidstart=cid)
-            train_dataset = self.data.get_train_dataset()
-            val_dataset = self.data.get_val_dataset()
-            test_dataset = self.data.get_test_dataset()
+            self.data.get_dataset_mids(cidstart=cid)
+            train_dataset = self.data.get_train_dataset_mids()
+            val_dataset = self.data.get_val_dataset_mids()
+            test_dataset = self.data.get_test_dataset_mids()
+
+            # self.data.get_dataset_vids(cidstart=cid)
+            # train_dataset = self.data.get_train_dataset()
+            # val_dataset = self.data.get_val_dataset()
+            # test_dataset = self.data.get_test_dataset()
 
             run_result = self.run(train_dataset, val_dataset, test_dataset)
             print('[Run] cid: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (cid,
@@ -56,11 +61,11 @@ class Trainer(object):
 
     def run(self, train_dataset, val_dataset, test_dataset):
         train_loader = DataLoader(dataset=train_dataset, batch_size=self.train_batch_size, shuffle=True,
-                                  collate_fn=pad_collate, pin_memory=True)
+                                  collate_fn=pad_collate_mids, pin_memory=True)
         val_loader = DataLoader(dataset=val_dataset, batch_size=self.test_batch_size, shuffle=False,
-                                collate_fn=pad_collate, pin_memory=True)
+                                collate_fn=pad_collate_mids, pin_memory=True)
         test_loader = DataLoader(dataset=test_dataset, batch_size=self.test_batch_size, shuffle=False,
-                                 collate_fn=pad_collate, pin_memory=True)
+                                 collate_fn=pad_collate_mids, pin_memory=True)
 
         best_val_metric, best_val_epoch = 0., 0
         best_test_metric, best_test_epoch = 0., 0

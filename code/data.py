@@ -187,7 +187,7 @@ class MyData(object):
         # 国会届次-立法者(众)
         self.cid_hmids_dict = np.load(os.path.join(self.load_path, 'cid_hmids_dict.npy'), allow_pickle=True).item()
         # 国会届次-立法者(参)
-        self.cid_smids_dict = np.load(os.path.join(self.load_path, 'cid_smids_dict.npy'), allow_pickle=True).item()
+        # self.cid_smids_dict = np.load(os.path.join(self.load_path, 'cid_smids_dict.npy'), allow_pickle=True).item()
 
         # 所有实体列表 11639 = 8165(法案)+1674(立法者)+1753(主题)+44(委员会)+3(党派)
         self.node_list = np.load(os.path.join(self.load_path, 'node_list.npy'), allow_pickle=True).tolist()
