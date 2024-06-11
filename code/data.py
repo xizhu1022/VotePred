@@ -123,9 +123,9 @@ def pad_collate(batch):
 
 
 def pad_collate_mids(batch):
-    max_pos_cosponser_len = float('-inf')
-    max_neg_cosponser_len = float('-inf')
-    # [1] [Pos] [Neg] [Pos_Co_L] [Neg_Co_L] [Pos_Subjects: 30] [Neg_Subjects: 30]
+    max_pos_cosponser_len = 1 # float('-inf')
+    max_neg_cosponser_len = 1 # float('-inf')
+    # [mid] [Pos] [Neg] [Pos_Co_L] [Neg_Co_L] [Pos_Subjects: 30] [Neg_Subjects: 30]
     # [Pos_Cosponsers: Unlimited] [Neg_Cosponsers: Unlimited]
     for index, line in enumerate(batch):
         pos_bill_cosponsers, pos_bill_subjects = line[2], line[3]
@@ -153,8 +153,12 @@ def pad_collate_mids(batch):
 
         padded_pos_cosponsers = np.pad(pos_bill_cosponsers, (0, max_pos_cosponser_len - len(pos_bill_cosponsers)),
                                        'constant', constant_values=0)
-        padded_neg_cosponsers = np.pad(neg_bill_cosponsers, (0, max_neg_cosponser_len - len(neg_bill_cosponsers)),
-                                       'constant', constant_values=0)
+        try:
+            padded_neg_cosponsers = np.pad(neg_bill_cosponsers, (0, max_neg_cosponser_len - len(neg_bill_cosponsers)),
+                                           'constant', constant_values=0)
+        except:
+            x = 1
+            raise ValueError
 
         new_line = [mid, pos_bill_index, neg_bill_index, max_pos_cosponser_len, max_neg_cosponser_len] + \
                    padded_pos_subjects.tolist() + padded_neg_subjects.tolist() + \

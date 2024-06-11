@@ -31,7 +31,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_heads', type=int, default=1, help='num_heads')
     parser.add_argument('--num_layers', type=int, default=2, help='num_layers')
     parser.add_argument('--dropout', type=float, default=0.0, help='dropout')
-    parser.add_argument('--train_batch_size', type=int, default=1024, help='train_batch_size')
+    parser.add_argument('--train_batch_size', type=int, default=16, help='train_batch_size')
     parser.add_argument('--test_batch_size', type=int, default=64, help='test_batch_size')
     parser.add_argument('--embedding_size', type=int, default=64, help='embedding_size')
     parser.add_argument('--model_name', type=str, default='RGCN_DualAttn_FFNN', help='model_name')

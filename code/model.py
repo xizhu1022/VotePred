@@ -218,6 +218,7 @@ class RGCN_DualAttn_FFNN(nn.Module):
 
         legis_embeddings = node_embeddings[mid_batch]
 
+
         pos_left_embeddings, pos_right_embeddings = self.DualAttn(node_embeddings=node_embeddings,
                                                                   key_idx=mid_batch,
                                                                   sponser_idx=pos_cosponser_batch,
