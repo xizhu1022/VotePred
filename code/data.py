@@ -10,6 +10,7 @@ import dgl
 
 from utils import adj_matrix_to_edge_index, matrix2dict
 
+from collections import defaultdict
 
 class MyDataset(Dataset):
     def __init__(self,
@@ -60,7 +61,7 @@ class MyMidDataset(Dataset):
                  bill2cosponsers,
                  bill2subjects_tfidf,
                  num_nodes):
-        self.mids = mids  # candidate keys
+        self.mids = mids  # candidate
         self.node2index = node2index  # node -> index
         self.mid2results = mid2results  # bill index -> voting results
         self.bill2cosponsers = bill2cosponsers  # bill index -> cosponsers
@@ -76,6 +77,13 @@ class MyMidDataset(Dataset):
 
         pos_bills = results["yeas"]
         neg_bills = results['nays'] + results['absents']
+
+        # pos_bills, neg_bills = [], []
+        # for cid in self.cids:
+        #     pos_cid_bills = self.mid_cid2results[mid][cid]['yeas']
+        #     neg_cid_bills = self.mid_cid2results[mid][cid]['nays'] + self.mid_cid2results[mid][cid]['absents']
+        #     pos_bills = pos_bills + pos_cid_bills
+        #     neg_bills = neg_bills + neg_cid_bills
 
         if len(pos_bills) == 0:
             pos_bill_index = self.node2index['pos_bill']
@@ -153,12 +161,9 @@ def pad_collate_mids(batch):
 
         padded_pos_cosponsers = np.pad(pos_bill_cosponsers, (0, max_pos_cosponser_len - len(pos_bill_cosponsers)),
                                        'constant', constant_values=0)
-        try:
-            padded_neg_cosponsers = np.pad(neg_bill_cosponsers, (0, max_neg_cosponser_len - len(neg_bill_cosponsers)),
+
+        padded_neg_cosponsers = np.pad(neg_bill_cosponsers, (0, max_neg_cosponser_len - len(neg_bill_cosponsers)),
                                            'constant', constant_values=0)
-        except:
-            x = 1
-            raise ValueError
 
         new_line = [mid, pos_bill_index, neg_bill_index, max_pos_cosponser_len, max_neg_cosponser_len] + \
                    padded_pos_subjects.tolist() + padded_neg_subjects.tolist() + \
@@ -244,6 +249,18 @@ class MyData(object):
                 this_mid_dict[vote] = [self.node2index[_] for _ in vote_list]
             self.mid2results[mid] = this_mid_dict
 
+        mid_cid_results_dict = np.load(os.path.join(self.load_path, 'mid_cid_results_dict.npy'), allow_pickle=True).item()
+        self.mid_cid2results = dict()
+        for mid, cid_results in mid_cid_results_dict.items():
+            mid = self.node2index[mid]
+            this_mid_cid_dict = dict()
+            for cid, results in cid_results.items():
+                this_cid_dict = dict()
+                for vote, vote_list in results.items():
+                    this_cid_dict[vote] = [self.node2index[_] for _ in vote_list]
+                this_mid_cid_dict[cid] = this_cid_dict
+            self.mid_cid2results[mid] = this_mid_cid_dict
+
         self.vid_subjects_tfidf_dict = np.load(os.path.join(self.load_path, 'vid_subjects_tfidf_dict.npy'),
                                                allow_pickle=True).item()
         self.bill2subjects_tfidf = dict()
@@ -312,9 +329,9 @@ class MyData(object):
 
     def get_dataset_mids(self, cidstart):
         # train data
-        window = self.cid_window_dict[cidstart]
+        self.window = self.cid_window_dict[cidstart]
         self.train_mids = []
-        for cid in window[:4]:
+        for cid in self.window[:4]:
             mids = self.cid_mids_dict[cid]
             self.train_mids += mids
         self.train_mids = [self.node2index[_] for _ in self.train_mids]
@@ -328,11 +345,40 @@ class MyData(object):
         self.val_mids = [self.node2index[_] for _ in self.val_mids]
         self.test_mids = [self.node2index[_] for _ in self.test_mids]
 
+        self.train_cids = self.window[:4]
+        self.val_cids = self.test_cids = [self.window[-1]]
+
+        self.train_mid2results = dict()
+        for mid in self.train_mids:
+            this_mid_dict = defaultdict(list)
+            for cid in self.train_cids:
+                for vote, vote_list in self.mid_cid2results[mid][cid].items():
+                    this_mid_dict[vote] += vote_list
+            self.train_mid2results[mid] = this_mid_dict
+
+        self.val_mid2results = dict()
+        for mid in self.val_mids:
+            this_mid_dict = defaultdict(list)
+            for cid in self.val_cids:
+                for vote, vote_list in self.mid_cid2results[mid][cid].items():
+                    this_mid_dict[vote] += vote_list
+            self.val_mid2results[mid] = this_mid_dict
+
+        self.test_mid2results = dict()
+        for mid in self.test_mids:
+            this_mid_dict = defaultdict(list)
+            for cid in self.test_cids:
+                for vote, vote_list in self.mid_cid2results[mid][cid].items():
+                    this_mid_dict[vote] += vote_list
+            self.test_mid2results[mid] = this_mid_dict
+        print('[Data] cid={}'.format(cidstart))
+
+
     def get_train_dataset_mids(self):
         return MyMidDataset(
             mids=self.train_mids,
             node2index=self.node2index,
-            mid2results=self.mid2results,
+            mid2results=self.train_mid2results,
             bill2cosponsers=self.bill2cosponsers,
             bill2subjects_tfidf=self.bill2subjects_tfidf,
             num_nodes=self.num_nodes
@@ -342,7 +388,7 @@ class MyData(object):
         return MyMidDataset(
             mids=self.val_mids,
             node2index=self.node2index,
-            mid2results=self.mid2results,
+            mid2results=self.val_mid2results,
             bill2cosponsers=self.bill2cosponsers,
             bill2subjects_tfidf=self.bill2subjects_tfidf,
             num_nodes=self.num_nodes
@@ -352,7 +398,7 @@ class MyData(object):
         return MyMidDataset(
             mids=self.test_mids,
             node2index=self.node2index,
-            mid2results=self.mid2results,
+            mid2results=self.test_mid2results,
             bill2cosponsers=self.bill2cosponsers,
             bill2subjects_tfidf=self.bill2subjects_tfidf,
             num_nodes=self.num_nodes

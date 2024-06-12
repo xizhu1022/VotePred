@@ -217,7 +217,8 @@ class RGCN_DualAttn_FFNN(nn.Module):
             raise NotImplementedError
 
         legis_embeddings = node_embeddings[mid_batch]
-
+        pos_bill_embeddings = node_embeddings[pos_bill_index_batch]
+        neg_bill_embeddings = node_embeddings[neg_bill_index_batch]
 
         pos_left_embeddings, pos_right_embeddings = self.DualAttn(node_embeddings=node_embeddings,
                                                                   key_idx=mid_batch,
@@ -232,6 +233,13 @@ class RGCN_DualAttn_FFNN(nn.Module):
                                                                   subject_idx=neg_subject_batch,
                                                                   sponser_masks=neg_cosponser_masks,
                                                                   subject_masks=neg_subject_masks)
+        # pos_scores = self.FFNN(left_embeddings=pos_left_embeddings,
+        #                        right_embeddings=pos_right_embeddings,
+        #                        legistor_embeddings=pos_bill_embeddings)
+        #
+        # neg_scores = self.FFNN(left_embeddings=neg_left_embeddings,
+        #                        right_embeddings=neg_right_embeddings,
+        #                        legistor_embeddings=neg_bill_embeddings)
 
         pos_scores = self.FFNN(left_embeddings=pos_left_embeddings,
                                right_embeddings=pos_right_embeddings,
