@@ -5,11 +5,11 @@ import torch
 from torch.utils.data import DataLoader
 
 from data import MyData, pad_collate, pad_collate_mids
-from model import RGCN_Merge
+
 
 
 class Trainer(object):
-    def __init__(self, model: RGCN_Merge, data: MyData, args):
+    def __init__(self, model, data: MyData, args):
         self.model = model
         self.data = data
         self.device = args.device
@@ -33,17 +33,18 @@ class Trainer(object):
 
         for cid in self.cidstart_list:
             print('------------{}-------------'.format(cid))
+            graph = self.data.build_graph(cid_latest=cid+4).to(self.device)
+            edge_index_combined = self.data.edge_index_combined.to(self.device)
+            edge_type_combined = self.data.edge_type_combined.to(self.device)
             self.data.get_dataset_mids(cidstart=cid)
+
             train_dataset = self.data.get_train_dataset_mids()
             val_dataset = self.data.get_val_dataset_mids()
             test_dataset = self.data.get_test_dataset_mids()
 
-            # self.data.get_dataset_vids(cidstart=cid)
-            # train_dataset = self.data.get_train_dataset()
-            # val_dataset = self.data.get_val_dataset()
-            # test_dataset = self.data.get_test_dataset()
 
-            run_result = self.run(train_dataset, val_dataset, test_dataset)
+            run_result = self.run(train_dataset, val_dataset, test_dataset,
+                                  graph, edge_index_combined, edge_type_combined)
             print('[Run] cid: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (cid,
                                                                                    run_result['acc'], run_result['f1'],
                                                                                    run_result['recall'],
@@ -59,7 +60,8 @@ class Trainer(object):
                                                                           np.mean(all_run_result['pre']))
               )
 
-    def run(self, train_dataset, val_dataset, test_dataset):
+    def run(self, train_dataset, val_dataset, test_dataset,
+            graph, edge_index_combined, edge_type_combined):
         train_loader = DataLoader(dataset=train_dataset, batch_size=self.train_batch_size, shuffle=True,
                                   collate_fn=pad_collate_mids, pin_memory=True)
         val_loader = DataLoader(dataset=val_dataset, batch_size=self.test_batch_size, shuffle=False,
@@ -73,7 +75,7 @@ class Trainer(object):
 
         for epoch in range(self.epochs):
             # train
-            train_result = self.train_one_epoch(train_loader, epoch)
+            train_result = self.train_one_epoch(train_loader, graph, edge_index_combined, edge_type_combined)
             if (epoch + 1) % 1 == 0:
                 print('[Train] epoch: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (epoch,
                                                                                            train_result['acc'],
@@ -82,7 +84,7 @@ class Trainer(object):
                                                                                            train_result['pre'])
                       )
             # validate
-            val_result = self.evaluate(val_loader)
+            val_result = self.evaluate(val_loader, graph, edge_index_combined, edge_type_combined)
             if (epoch + 1) % 1 == 0:
                 print('[Valid] epoch: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (epoch,
                                                                                            val_result['acc'],
@@ -100,7 +102,7 @@ class Trainer(object):
                 break
 
         # test
-        test_result = self.evaluate(test_loader)
+        test_result = self.evaluate(test_loader, graph, edge_index_combined, edge_type_combined)
         # print('[Test] epoch: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (epoch,
         #                                                                           test_result['acc'],
         #                                                                           test_result['f1'],
@@ -115,14 +117,14 @@ class Trainer(object):
 
         return test_result
 
-    def train_one_epoch(self, train_loader, epoch):
+    def train_one_epoch(self, train_loader, graph, edge_index_combined, edge_type_combined):
         train_result = ddict(list)
         self.model.train()
 
         for batch in train_loader:
             self.optimizer.zero_grad()
             batch = batch.to(self.device)
-            bce_loss, acc, f1, recall, pre, auc = self.model(batch)
+            bce_loss, acc, f1, recall, pre, auc = self.model(batch, graph, edge_index_combined, edge_type_combined)
             loss = bce_loss
             loss.backward()
             self.optimizer.step()
@@ -138,12 +140,12 @@ class Trainer(object):
         return train_result
 
     @torch.no_grad()
-    def evaluate(self, loader):
+    def evaluate(self, loader, graph, edge_index_combined, edge_type_combined):
         eval_result = ddict(list)
         self.model.eval()
         for batch in loader:
             batch = batch.to(self.device)
-            bce_loss, acc, f1, recall, pre, auc = self.model(batch)
+            bce_loss, acc, f1, recall, pre, auc = self.model(batch, graph, edge_index_combined, edge_type_combined)
             eval_result['acc'].append(acc)
             eval_result['f1'].append(f1)
             eval_result['recall'].append(recall)

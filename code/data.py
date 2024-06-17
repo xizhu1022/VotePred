@@ -12,6 +12,7 @@ from utils import adj_matrix_to_edge_index, matrix2dict
 
 from collections import defaultdict
 
+
 class MyDataset(Dataset):
     def __init__(self,
                  bills,
@@ -77,13 +78,6 @@ class MyMidDataset(Dataset):
 
         pos_bills = results["yeas"]
         neg_bills = results['nays'] + results['absents']
-
-        # pos_bills, neg_bills = [], []
-        # for cid in self.cids:
-        #     pos_cid_bills = self.mid_cid2results[mid][cid]['yeas']
-        #     neg_cid_bills = self.mid_cid2results[mid][cid]['nays'] + self.mid_cid2results[mid][cid]['absents']
-        #     pos_bills = pos_bills + pos_cid_bills
-        #     neg_bills = neg_bills + neg_cid_bills
 
         if len(pos_bills) == 0:
             pos_bill_index = self.node2index['pos_bill']
@@ -177,8 +171,7 @@ class MyData(object):
         self.load_path = load_path
         self.load_data()
         self.num_nodes = len(self.node_list)
-        self.build_graph()
-        self.num_rels = max(self.edge_type_combined.data).item() + 1
+        self.num_rels = 7 # max(self.edge_type_combined.data).item() + 1
 
     def load_data(self):
         # 加载实体   法案立法者与国会届次相关, 主题委员会党派与国会届次无关
@@ -285,9 +278,39 @@ class MyData(object):
         self.pretrained_embeddings = torch.cat([self.null_embeddings, self.vid_embeddings, self.mid_embeddings,
                                                 self.subject_embeddings], dim=1).transpose(1,0)
 
-    def build_graph(self):
-        edge_index0 = adj_matrix_to_edge_index(self.cosponsor_network)
-        edge_index1 = adj_matrix_to_edge_index(self.subject_network)
+    def update_historical_interactions(self, cid_latest):
+        # legislator - bill interactions
+        lb_rows, lb_cols = [], []
+        bs_rows, bs_cols = [], []
+        for mid, cid_results in self.mid_cid2results.items():
+            for cid, results in cid_results.items():
+                if cid in self.cid_list[: cid_latest-1]:
+                    valid_bills = list(set(results['yeas'] + results['proposals']))
+                    for bill in valid_bills:
+                        lb_rows.append(mid)
+                        lb_cols.append(bill)
+        lb_pairs = (lb_rows + lb_cols, lb_cols + lb_rows)
+
+        # bill - subject interactions
+        for cid, bills in self.cid_vids_dict.items():
+            if cid in self.cid_list[: cid_latest-1]:
+                for bill in bills:
+                    bill = self.node2index[bill]
+                    subjects = self.bill2subjects[bill]
+                    for subject in subjects:
+                        bs_rows.append(bill)
+                        bs_cols.append(subject)
+
+        bs_pairs = (bs_rows + bs_cols, bs_cols + bs_rows)
+        return lb_pairs, bs_pairs
+
+    def build_graph(self, cid_latest):
+        lb_pairs, bs_pairs = self.update_historical_interactions(cid_latest)
+        edge_index0 = torch.stack([torch.LongTensor(lb_pairs[0]), torch.LongTensor(lb_pairs[1])], dim=0)
+        edge_index1 = torch.stack([torch.LongTensor(bs_pairs[0]), torch.LongTensor(bs_pairs[1])], dim=0)
+
+        # edge_index0 = adj_matrix_to_edge_index(self.cosponsor_network)  # dynamically update
+        # edge_index1 = adj_matrix_to_edge_index(self.subject_network)  # dynamically update
         edge_index2 = adj_matrix_to_edge_index(self.committee_network)
         edge_index3 = adj_matrix_to_edge_index(self.twitter_network)
         edge_index4 = adj_matrix_to_edge_index(self.party_network)
@@ -307,7 +330,9 @@ class MyData(object):
 
         graph = dgl.graph((self.edge_index_combined[0], self.edge_index_combined[1]), num_nodes=self.num_nodes)
         graph.edata['etype'] = self.edge_type_combined
-        self.graph = graph
+
+        print('[Data] cid_latest={}, edges={}'.format(cid_latest, len(self.edge_index_combined)))
+        return graph
 
     def get_dataset_vids(self, cidstart):
         # train data
@@ -334,6 +359,7 @@ class MyData(object):
         for cid in self.window[:4]:
             mids = self.cid_mids_dict[cid]
             self.train_mids += mids
+        self.train_mids = list(set(self.train_mids))
         self.train_mids = [self.node2index[_] for _ in self.train_mids]
 
         # val / test data
@@ -371,7 +397,9 @@ class MyData(object):
                 for vote, vote_list in self.mid_cid2results[mid][cid].items():
                     this_mid_dict[vote] += vote_list
             self.test_mid2results[mid] = this_mid_dict
-        print('[Data] cid={}'.format(cidstart))
+        print('[Data] cid={}, train_mids={}, val_mids={}, test_mids={}'.format(cidstart, len(self.train_mids),
+                                                                               len(self.val_mids), len(self.test_mids)))
+
 
 
     def get_train_dataset_mids(self):
