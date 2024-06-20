@@ -53,7 +53,8 @@ class Predictor(nn.Module):
         super(Predictor, self).__init__()
 
     def forward(self, bill_embeddings, legislator_embeddings):
-        return torch.sigmoid(torch.dot(bill_embeddings, legislator_embeddings))
+        scores = (bill_embeddings * legislator_embeddings).sum(axis=1)
+        return scores
 
 
 class RGCNModel(nn.Module):
@@ -93,22 +94,22 @@ class DualAttention(nn.Module):
         # self.bill2cosponsers = data.bill2cosponsers
         # self.bill2subjects = data.bill2subjects
 
-    def forward(self, node_embeddings, key_idx, sponser_idx, subject_idx, sponser_masks, subject_masks):
-        key_embeddings = node_embeddings[key_idx].unsqueeze(0)  # (1, bsz, dim)
+    def forward(self, node_embeddings, query_idx, sponser_idx, subject_idx, sponser_masks, subject_masks):
+        query_embeddings = node_embeddings[query_idx].unsqueeze(0)  # (1, bsz, dim)
         sponser_embeddings = node_embeddings[sponser_idx].transpose(0, 1)  # (num_sponsers, bsz, dim)
         subject_embeddings = node_embeddings[subject_idx].transpose(0, 1)  # (num_subjects, bsz, dim)
 
         # sponser_masks = sponser_masks.transpose(0, 1)
         # subject_masks = subject_masks.transpose(0, 1)
 
-        left_embeddings, left_weights = self.left_attn(query=key_embeddings,
+        left_embeddings, left_weights = self.left_attn(query=query_embeddings,
                                                        key=sponser_embeddings,
                                                        value=sponser_embeddings,
                                                        key_padding_mask=sponser_masks,  # (bsz, num_sponsers)
                                                        need_weights=True)
         # (1, bsz, dim), (bsz, 1, num_sponsers)
 
-        right_embeddings, right_weights = self.right_attn(query=key_embeddings,
+        right_embeddings, right_weights = self.right_attn(query=query_embeddings,
                                                           key=subject_embeddings,
                                                           value=subject_embeddings,
                                                           key_padding_mask=subject_masks,
@@ -126,30 +127,26 @@ class DualAttention(nn.Module):
 class RGCN_DualAttn_FFNN(nn.Module):
     def __init__(self,
                  dim,
-                 # graph,
                  num_nodes,
                  num_relations,
                  num_layers,
-                 # edge_index,
-                 # edge_type,
                  num_heads,
                  dropout,
+                 lambda_1,
+                 lambda_2,
                  pretrained,
                  data):
         super(RGCN_DualAttn_FFNN, self).__init__()
         self.dim = dim
-        # self.graph = graph
         self.num_nodes = num_nodes
         self.num_relations = num_relations
         self.num_layers = num_layers
-        # self.edge_index = edge_index
-        # self.edge_type = edge_type
         self.n_head = num_heads
         self.dropout = dropout
         self.pretrained = pretrained
         self.data = data
-        self.negative_sample = 1
-        self.negative_sample_weight = 1
+        self.lambda_1 = lambda_1
+        self.lambda_2 = lambda_2
 
         if self.pretrained is not None:
             self.node_embeddings = nn.Parameter(torch.FloatTensor(self.num_nodes, 768))
@@ -162,26 +159,26 @@ class RGCN_DualAttn_FFNN(nn.Module):
         self.pre_encoder = 'HGB'
         if self.pre_encoder == 'HGB':
             self.HGB = myGAT(
-                # g=self.graph,
-                             edge_dim=self.dim,
-                             num_etypes=self.num_relations,
-                             in_dims=[self.dim],
-                             num_hidden=self.dim,
-                             num_layers=self.num_layers,
-                             heads=[self.n_head] * self.num_layers,
-                             activation=F.relu,
-                             feat_drop=0.0,
-                             attn_drop=0.0,
-                             negative_slope=0.2,
-                             residual=False,
-                             alpha=0.05)
+                edge_dim=self.dim,
+                num_etypes=self.num_relations,
+                in_dims=[self.dim],
+                num_hidden=self.dim,
+                num_layers=self.num_layers,
+                heads=[self.n_head] * self.num_layers,
+                activation=F.relu,
+                feat_drop=0.05,
+                attn_drop=0.05,
+                negative_slope=0.2,
+                residual=False,
+                alpha=0.05)
 
         elif self.pre_encoder == 'RGCN':
-            self.RGCN = RGCNModel(in_channels=self.dim,
-                                  out_channels=self.dim,
-                                  num_relations=self.num_relations,
-                                  edge_index=self.edge_index,
-                                  edge_type=self.edge_type)
+            self.RGCN = RGCNModel(
+                in_channels=self.dim,
+                out_channels=self.dim,
+                num_relations=self.num_relations,
+                edge_index=self.edge_index,
+                edge_type=self.edge_type)
 
         self.DualAttn = DualAttention(d_model=self.dim,
                                       num_heads=self.n_head,
@@ -202,12 +199,13 @@ class RGCN_DualAttn_FFNN(nn.Module):
         else:
             nn.init.xavier_normal_(self.node_embeddings)
 
-    def forward(self, batch, graph, edge_index_combined, edge_type_combined):
+    def forward(self, batch, graph):
         # TODO: Check inputs
         mid_batch, pos_bill_index_batch, neg_bill_index_batch, max_pos_cosponser_len_batch, max_neg_cosponser_len_batch \
             = batch[:, 0], batch[:, 1], batch[:, 2], batch[:, 3], batch[:, 4]
         pos_subject_batch, neg_subject_batch = batch[:, 5: 35], batch[:, 35: 65]
-        pos_subject_masks, neg_subject_masks = pos_subject_batch == 0, neg_subject_batch == 0
+        pos_subject_masks = pos_subject_batch == 0
+        neg_subject_masks = neg_subject_batch == 0
 
         max_pos_cosponser_len = max_pos_cosponser_len_batch[0]
         max_neg_cosponser_len = max_neg_cosponser_len_batch[0]
@@ -226,39 +224,44 @@ class RGCN_DualAttn_FFNN(nn.Module):
         elif self.pre_encoder == 'HGB':
             node_embeddings = self.HGB(features_list=[x],
                                        e_feat=graph.edata['etype'],
-                                       g= graph
+                                       g=graph
                                        )
         else:
             raise NotImplementedError
 
-        legis_embeddings = node_embeddings[mid_batch]
+        legis_embeddings = node_embeddings[mid_batch]  # (bsz, dim)
         # pos_bill_embeddings = node_embeddings[pos_bill_index_batch]
         # neg_bill_embeddings = node_embeddings[neg_bill_index_batch]
 
         pos_left_embeddings, pos_right_embeddings = self.DualAttn(node_embeddings=node_embeddings,
-                                                                  key_idx=mid_batch,
+                                                                  query_idx=mid_batch,
                                                                   sponser_idx=pos_cosponser_batch,
                                                                   subject_idx=pos_subject_batch,
                                                                   sponser_masks=pos_cosponser_masks,
-                                                                  subject_masks=pos_subject_masks)
+                                                                  subject_masks=pos_subject_masks)  # (bsz, dim)
 
-        pos_embeddings = torch.cat([pos_left_embeddings, pos_right_embeddings], dim=0)
-        pos_embeddings = self.FusionAttn(query=pos_embeddings,
-                                         key=pos_embeddings,
-                                         value=pos_embeddings)
-        pos_embeddings = self.LegislatorMLP(pos_embeddings)
+        pos_embeddings = torch.cat([pos_left_embeddings, pos_right_embeddings], dim=1)  # (bsz, 2 * dim)
+        pos_embeddings = pos_embeddings.unsqueeze(0)  # (1, bsz, 2*dim)
+
+        pos_embeddings, _ = self.FusionAttn(query=pos_embeddings,
+                                            key=pos_embeddings,
+                                            value=pos_embeddings)
+        pos_embeddings = pos_embeddings.squeeze(0)  # (bsz, 2*dim)
+        pos_embeddings = self.LegislatorMLP(pos_embeddings)  # (bsz, dim)
 
         neg_left_embeddings, neg_right_embeddings = self.DualAttn(node_embeddings=node_embeddings,
-                                                                  key_idx=mid_batch,
+                                                                  query_idx=mid_batch,
                                                                   sponser_idx=neg_cosponser_batch,
                                                                   subject_idx=neg_subject_batch,
                                                                   sponser_masks=neg_cosponser_masks,
                                                                   subject_masks=neg_subject_masks)
 
-        neg_embeddings = torch.cat([neg_left_embeddings, neg_right_embeddings], dim=0)
-        neg_embeddings = self.FusionAttn(query=neg_embeddings,
-                                         key=neg_embeddings,
-                                         value=neg_embeddings)
+        neg_embeddings = torch.cat([neg_left_embeddings, neg_right_embeddings], dim=1)
+        neg_embeddings = neg_embeddings.unsqueeze(0)
+        neg_embeddings, _ = self.FusionAttn(query=neg_embeddings,
+                                            key=neg_embeddings,
+                                            value=neg_embeddings)
+        neg_embeddings = neg_embeddings.squeeze(0)
         neg_embeddings = self.LegislatorMLP(neg_embeddings)
 
         # pos_scores = self.FFNN(left_embeddings=pos_left_embeddings,
@@ -270,13 +273,13 @@ class RGCN_DualAttn_FFNN(nn.Module):
         #                        legistor_embeddings=neg_bill_embeddings)
 
         pos_scores = self.PredictorLayer(bill_embeddings=pos_embeddings,
-                                         legislator_embeddings=legis_embeddings)
+                                         legislator_embeddings=legis_embeddings)  # (bsz)
 
         neg_scores = self.PredictorLayer(bill_embeddings=neg_embeddings,
-                                         legislator_embeddings=legis_embeddings)
+                                         legislator_embeddings=legis_embeddings)  # (bsz)
 
-        pos_scores = pos_scores.squeeze(-1)
-        neg_scores = neg_scores.squeeze(-1)
+        # pos_scores = pos_scores.squeeze(-1)
+        # neg_scores = neg_scores.squeeze(-1)
 
         return self.cal_loss(pos_scores, neg_scores, node_embeddings)
 
@@ -325,49 +328,66 @@ class RGCN_DualAttn_FFNN(nn.Module):
 
     def cal_sim_loss(self, pairs, batch_size, node_embeddings):
         indices = np.random.permutation(len(pairs[0]))
-
         valid_indices = list(set(list(pairs[0]) + list(pairs[1])))
         sample_indices = list(indices[:batch_size])
+
         fro = list(pairs[0][sample_indices])
         to = list(pairs[1][sample_indices])
+        another = [np.random.choice(valid_indices) for _ in range(batch_size)]
 
-        loss = 0
-        for i in range(len(fro)):
-            fro_emb, to_emb = node_embeddings[fro[i]], node_embeddings[to[i]]
-            loss += -torch.log(torch.sigmoid(torch.dot(fro_emb, to_emb)))
-            for j in range(self.negative_sample):
-                another = np.random.choice(valid_indices)
-                another_emb = node_embeddings[another]
-                loss += self.negative_sample_weight * (torch.log(torch.sigmoid(-1 * torch.dot(fro_emb, another_emb))))
-        loss = loss / batch_size
+        fro_embeddings = node_embeddings[torch.LongTensor(fro)]
+        to_embeddings = node_embeddings[torch.LongTensor(to)]
+        another_embeddings = node_embeddings[torch.LongTensor(another)]
+
+        pos_scores = self.PredictorLayer(fro_embeddings, to_embeddings)
+        neg_scores = self.PredictorLayer(fro_embeddings, another_embeddings)
+
+        loss = torch.mean(-torch.log(torch.sigmoid(pos_scores - neg_scores)))
+
+        # for i in range(len(fro)):
+        #     fro_emb, to_emb = node_embeddings[fro[i]], node_embeddings[to[i]]
+        #     # loss += -torch.log(torch.sigmoid(torch.dot(fro_emb, to_emb)))
+        #     for j in range(self.negative_sample):
+        #         another = np.random.choice(valid_indices)
+        #         another_emb = node_embeddings[another]
+        #         loss += -torch.log(torch.sigmoid(torch.dot(fro_emb, to_emb) - torch.dot(fro_emb, another_emb)))
+        # loss = loss / batch_size
         return loss
 
     def cal_priority_loss(self, batch_size, node_embeddings):
-        loss = 0
-        count = 0
-        for i in range(batch_size):
-            mid = np.random.choice(self.data.train_mids)
-            pos_bills = self.data.train_mid2results[mid]['proposal']
-            neg_bills = self.data.train_mid2results[mid]['yea']
+        legislators, pos_bills, neg_bills = [], [], []
+        while True:
+            legislator = np.random.choice(self.data.train_mids)
+            candidate_pos_bills = self.data.train_mid2results[legislator]['proposals']
+            candidate_neg_bills = self.data.train_mid2results[legislator]['yeas']
 
-            if len(pos_bills) == 0:
+            if len(candidate_pos_bills) == 0:
                 continue
             else:
-                pos_bill = np.random.choice(pos_bills)
-                pos_bill_emb = node_embeddings[pos_bill]
+                pos_bill = np.random.choice(candidate_pos_bills)
 
-            if len(neg_bills) == 0:
+            if len(candidate_neg_bills) == 0:
                 continue
             else:
-                neg_bill = np.random.choice(neg_bills)
-                neg_bill_emb = node_embeddings[neg_bill]
+                neg_bill = np.random.choice(candidate_neg_bills)
 
-            mid_emb = node_embeddings[mid]
-            mid_loss = -torch.log(torch.sigmoid(torch.dot(mid_emb, pos_bill_emb)))
-            mid_loss += torch.log(torch.sigmoid(torch.dot(mid_emb, neg_bill_emb)))
-            loss += mid_loss
-            count += 1
-        loss = loss / count
+            legislators.append(legislator)
+            pos_bills.append(pos_bill)
+            neg_bills.append(neg_bill)
+
+            if len(legislators) >= batch_size:
+                break
+
+        fro_embeddings = node_embeddings[torch.LongTensor(legislators)]
+        to_embeddings = node_embeddings[torch.LongTensor(pos_bills)]
+        another_embeddings = node_embeddings[torch.LongTensor(neg_bills)]
+
+        pos_scores = self.PredictorLayer(fro_embeddings, to_embeddings)
+        neg_scores = self.PredictorLayer(fro_embeddings, another_embeddings)
+
+        loss = torch.mean(-torch.log(torch.sigmoid(pos_scores - neg_scores)))
+
+       
         return loss
 
     def cal_loss(self, pos_pre, neg_pre, node_embeddings):
@@ -384,27 +404,22 @@ class RGCN_DualAttn_FFNN(nn.Module):
         loss_2 += self.cal_sim_loss(self.data.state_network_pairs, batch_size, node_embeddings)
         loss_2 += self.cal_sim_loss(self.data.twitter_network_pairs, batch_size, node_embeddings)
         loss_2 += self.cal_sim_loss(self.data.party_network_pairs, batch_size, node_embeddings)
+        loss_2 = loss_2 / 4
 
         # loss_3 sponsorship priority
         loss_3 = 0
         loss_3 += self.cal_priority_loss(batch_size, node_embeddings)
 
-        # predict
+        self.lambda_3 = 1 - self.lambda_1 - self.lambda_2
+        loss = self.lambda_1 * loss_1 + self.lambda_2 * loss_2 + self.lambda_3 * loss_3
+
+        # loss = loss / batch_size
+
         predicted_labels = torch.round(torch.sigmoid(predictions))
-        correct = (predicted_labels == targets).sum().item()
-        accuracy = correct / targets.size(0)
+        targets = targets.detach().cpu().numpy()
+        predicted_labels = predicted_labels.detach().cpu().numpy()
 
-        targets, predicted_labels = targets.detach().cpu().numpy(), predicted_labels.detach().cpu().numpy()
-
-        f1 = f1_score(targets, predicted_labels)
-        recall = recall_score(targets, predicted_labels)
-        precision = precision_score(targets, predicted_labels)
-        auc = roc_auc_score(targets, predicted_labels)
-
-        lambda_1, lambda_2, lambda_3 = 0.90, 0.0, 0.0
-        loss = lambda_1 * loss_1 + lambda_2 * loss_2 + lambda_3 * loss_3
-
-        return loss, accuracy, f1, recall, precision, auc
+        return loss, targets, predicted_labels
 
 #
 # class RGCN_Merge(nn.Module):
@@ -531,3 +546,4 @@ class RGCN_DualAttn_FFNN(nn.Module):
 #         bce_loss, accuracy, f1, recall, precision, auc = cal_loss(pos_pre, neg_pre)
 #
 #         return bce_loss, accuracy, f1, recall, precision, auc
+

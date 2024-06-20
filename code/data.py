@@ -157,7 +157,7 @@ def pad_collate_mids(batch):
                                        'constant', constant_values=0)
 
         padded_neg_cosponsers = np.pad(neg_bill_cosponsers, (0, max_neg_cosponser_len - len(neg_bill_cosponsers)),
-                                           'constant', constant_values=0)
+                                       'constant', constant_values=0)
 
         new_line = [mid, pos_bill_index, neg_bill_index, max_pos_cosponser_len, max_neg_cosponser_len] + \
                    padded_pos_subjects.tolist() + padded_neg_subjects.tolist() + \
@@ -206,7 +206,7 @@ class MyData(object):
         # 所有党派列表 3 R D I
         # self.party_list = np.load(os.path.join(self.load_path, 'party_list.npy'), allow_pickle=True).tolist()
 
-        # 加载边关系领接矩阵
+        # heterogeneous network
         self.cosponsor_network_sparse = sp.load_npz(os.path.join(self.load_path, 'cosponsor_network_sparse.npz'))
         self.subject_network_sparse = sp.load_npz(os.path.join(self.load_path, 'subject_network_sparse.npz'))
         self.committee_network_sparse = sp.load_npz(os.path.join(self.load_path, 'committee_network_sparse.npz'))
@@ -219,7 +219,7 @@ class MyData(object):
         self.party_network_pairs = self.party_network_sparse.nonzero()
         self.state_network_pairs = self.state_network_sparse.nonzero()
 
-        self.bill2cosponsers = matrix2dict(self.cosponsor_network_sparse)
+        self.bill2cosponsers = matrix2dict(self.cosponsor_network_sparse)  # (array[0], array[1])
         self.bill2subjects = matrix2dict(self.subject_network_sparse)
 
         self.cosponsor_network = np.asmatrix(self.cosponsor_network_sparse.toarray())  # 11639, 11639
@@ -229,19 +229,19 @@ class MyData(object):
         self.party_network = np.asmatrix(self.party_network_sparse.toarray())
         self.state_network = np.asmatrix(self.state_network_sparse.toarray())
 
-        # 法案-投票记录
-        # self.bill2results = np.load(os.path.join(self.load_path, 'vid_results_dict.npy'), allow_pickle=True).item()
-        # 法案-投票记录 (实体id替换为 node_list的index)
+        #
+        #
+        # bill - vote - vote_list (legislators)
         self.bill2results = np.load(os.path.join(self.load_path, 'index_results_dict.npy'), allow_pickle=True).item()
         mid_results_dict = np.load(os.path.join(self.load_path, 'mid_results_dict.npy'), allow_pickle=True).item()
-        self.mid2results = dict()
+        self.mid2results = dict()  # legislator - vote - vote_list (bills)
         for mid, results in mid_results_dict.items():
             mid = self.node2index[mid]
             this_mid_dict = dict()
             for vote, vote_list in results.items():
                 this_mid_dict[vote] = [self.node2index[_] for _ in vote_list]
             self.mid2results[mid] = this_mid_dict
-
+        # legislator - congress - vote - vote_list (bills)
         mid_cid_results_dict = np.load(os.path.join(self.load_path, 'mid_cid_results_dict.npy'), allow_pickle=True).item()
         self.mid_cid2results = dict()
         for mid, cid_results in mid_cid_results_dict.items():
@@ -253,7 +253,7 @@ class MyData(object):
                     this_cid_dict[vote] = [self.node2index[_] for _ in vote_list]
                 this_mid_cid_dict[cid] = this_cid_dict
             self.mid_cid2results[mid] = this_mid_cid_dict
-
+        # bill - subjects (descend by TF-IDF values)
         self.vid_subjects_tfidf_dict = np.load(os.path.join(self.load_path, 'vid_subjects_tfidf_dict.npy'),
                                                allow_pickle=True).item()
         self.bill2subjects_tfidf = dict()
@@ -270,30 +270,30 @@ class MyData(object):
         self.vid_embedding_dict = np.load(os.path.join(self.load_path, 'vid_embedding_dict.npy'),
                                           allow_pickle=True).item()  # 8065
 
-        # 11 + 8165(法案)+1674(立法者)+1753(主题)
-        self.null_embeddings = torch.cat([torch.rand(768, 1) for _ in range(11)], dim=1)
-        self.mid_embeddings = torch.cat([self.mid_embedding_dict[_].reshape(-1,1) for _ in self.mid_list], dim=1)
-        self.subject_embeddings = torch.cat([self.subject_embedding_dict[_].reshape(-1,1) for _ in self.subject_list], dim=1)
-        self.vid_embeddings = torch.cat([self.vid_embedding_dict[_].reshape(-1,1) for _ in self.vid_list], dim=1)
+        # initialized embeddings 11 + 8165(法案)+1674(立法者)+1753(主题)
+        self.null_embeddings = torch.cat([torch.rand(768, 1) for _ in range(11)], dim=1)  # 11 padding
+        self.mid_embeddings = torch.cat([self.mid_embedding_dict[_].reshape(-1,1) for _ in self.mid_list], dim=1)  # bills
+        self.subject_embeddings = torch.cat([self.subject_embedding_dict[_].reshape(-1,1) for _ in self.subject_list], dim=1)  # legislators
+        self.vid_embeddings = torch.cat([self.vid_embedding_dict[_].reshape(-1,1) for _ in self.vid_list], dim=1)  # subjects
         self.pretrained_embeddings = torch.cat([self.null_embeddings, self.vid_embeddings, self.mid_embeddings,
                                                 self.subject_embeddings], dim=1).transpose(1,0)
 
     def update_historical_interactions(self, cid_latest):
         # legislator - bill interactions
+        valid_range = range(self.cid_list[0], cid_latest)  # fatal error
         lb_rows, lb_cols = [], []
         bs_rows, bs_cols = [], []
         for mid, cid_results in self.mid_cid2results.items():
             for cid, results in cid_results.items():
-                if cid in self.cid_list[: cid_latest-1]:
-                    valid_bills = list(set(results['yeas'] + results['proposals']))
+                if cid in valid_range:
+                    valid_bills = list(set( results['proposals']))  # results['yeas'] +
                     for bill in valid_bills:
                         lb_rows.append(mid)
                         lb_cols.append(bill)
-        lb_pairs = (lb_rows + lb_cols, lb_cols + lb_rows)
 
         # bill - subject interactions
-        for cid, bills in self.cid_vids_dict.items():
-            if cid in self.cid_list[: cid_latest-1]:
+        for cid, bills in self.cid_vids_dict.items():  # differ: bill2subjects
+            if cid in valid_range:
                 for bill in bills:
                     bill = self.node2index[bill]
                     subjects = self.bill2subjects[bill]
@@ -301,6 +301,8 @@ class MyData(object):
                         bs_rows.append(bill)
                         bs_cols.append(subject)
 
+        # to bidirectional
+        lb_pairs = (lb_rows + lb_cols, lb_cols + lb_rows)
         bs_pairs = (bs_rows + bs_cols, bs_cols + bs_rows)
         return lb_pairs, bs_pairs
 
@@ -331,7 +333,7 @@ class MyData(object):
         graph = dgl.graph((self.edge_index_combined[0], self.edge_index_combined[1]), num_nodes=self.num_nodes)
         graph.edata['etype'] = self.edge_type_combined
 
-        print('[Data] cid_latest={}, edges={}'.format(cid_latest, len(self.edge_index_combined)))
+        print('[Data] cid_latest={}, edges={}'.format(cid_latest, len(self.edge_index_combined[0])))
         return graph
 
     def get_dataset_vids(self, cidstart):
@@ -355,8 +357,10 @@ class MyData(object):
     def get_dataset_mids(self, cidstart):
         # train data
         self.window = self.cid_window_dict[cidstart]
+        self.train_cids = self.window[:4]
+        self.val_cids = self.test_cids = [self.window[-1]]
         self.train_mids = []
-        for cid in self.window[:4]:
+        for cid in self.train_cids:
             mids = self.cid_mids_dict[cid]
             self.train_mids += mids
         self.train_mids = list(set(self.train_mids))
@@ -364,15 +368,11 @@ class MyData(object):
 
         # val / test data
         cid = cidstart + 4
-        mids = self.cid_mids_dict[cid]
+        full_mids = [self.node2index[_] for _ in self.cid_mids_dict[cid]]
+        mids = list(set(self.train_mids) & set(full_mids))  # avoid cold start
         random.shuffle(mids)
         val_size = len(mids) // 2
         self.val_mids, self.test_mids = mids[:val_size], mids[val_size:]
-        self.val_mids = [self.node2index[_] for _ in self.val_mids]
-        self.test_mids = [self.node2index[_] for _ in self.test_mids]
-
-        self.train_cids = self.window[:4]
-        self.val_cids = self.test_cids = [self.window[-1]]
 
         self.train_mid2results = dict()
         for mid in self.train_mids:
@@ -397,10 +397,9 @@ class MyData(object):
                 for vote, vote_list in self.mid_cid2results[mid][cid].items():
                     this_mid_dict[vote] += vote_list
             self.test_mid2results[mid] = this_mid_dict
-        print('[Data] cid={}, train_mids={}, val_mids={}, test_mids={}'.format(cidstart, len(self.train_mids),
-                                                                               len(self.val_mids), len(self.test_mids)))
 
-
+        print('[Data] cid={}, train_mids={}, full_mids={}, valid_mids={}, val_mids={}, test_mids={}'.format(
+            cidstart, len(self.train_mids), len(full_mids), len(mids), len(self.val_mids), len(self.test_mids)))
 
     def get_train_dataset_mids(self):
         return MyMidDataset(

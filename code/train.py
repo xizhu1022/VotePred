@@ -4,8 +4,8 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from data import MyData, pad_collate, pad_collate_mids
-
+from data import MyData, pad_collate_mids
+from utils import cal_results
 
 
 class Trainer(object):
@@ -15,6 +15,7 @@ class Trainer(object):
         self.device = args.device
 
         self.epochs = args.epochs
+        self.min_epochs = args.min_epochs
         self.train_batch_size = args.train_batch_size
         self.test_batch_size = args.test_batch_size
         self.model_path = args.model_path
@@ -33,35 +34,41 @@ class Trainer(object):
 
         for cid in self.cidstart_list:
             print('------------{}-------------'.format(cid))
-            graph = self.data.build_graph(cid_latest=cid+4).to(self.device)
-            edge_index_combined = self.data.edge_index_combined.to(self.device)
-            edge_type_combined = self.data.edge_type_combined.to(self.device)
+            graph = self.data.build_graph(cid_latest=cid + 4)
+            graph = graph.to(self.device)
+            # edge_index_combined = self.data.edge_index_combined.to(self.device)
+            # edge_type_combined = self.data.edge_type_combined.to(self.device)
             self.data.get_dataset_mids(cidstart=cid)
 
             train_dataset = self.data.get_train_dataset_mids()
             val_dataset = self.data.get_val_dataset_mids()
             test_dataset = self.data.get_test_dataset_mids()
 
-
-            run_result = self.run(train_dataset, val_dataset, test_dataset,
-                                  graph, edge_index_combined, edge_type_combined)
-            print('[Run] cid: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (cid,
-                                                                                   run_result['acc'], run_result['f1'],
-                                                                                   run_result['recall'],
-                                                                                   run_result['pre'])
+            run_results = self.run(train_dataset, val_dataset, test_dataset, graph)
+            print('[Run] cid: %d, acc: %.4f, f1: %.4f, recall: %.4f, '
+                  'pre: %.4f, auc: %.4f' % (cid,
+                                            run_results['acc'],
+                                            run_results['f1'],
+                                            run_results['recall'],
+                                            run_results['pre'],
+                                            run_results['auc'])
                   )
 
-            for metric, result in run_result.items():
+            for metric, result in run_results.items():
                 all_run_result[metric].append(result)
 
-        print('[Overall] acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (np.mean(all_run_result['acc']),
-                                                                          np.mean(all_run_result['f1']),
-                                                                          np.mean(all_run_result['recall']),
-                                                                          np.mean(all_run_result['pre']))
+            # del graph
+            # torch.cuda.empty_cache()
+            # gc.collect()
+
+        print('[Overall] acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f, auc: %.4f' % (np.mean(all_run_result['acc']),
+                                                                                     np.mean(all_run_result['f1']),
+                                                                                     np.mean(all_run_result['recall']),
+                                                                                     np.mean(all_run_result['pre']),
+                                                                                     np.mean(all_run_result['auc']))
               )
 
-    def run(self, train_dataset, val_dataset, test_dataset,
-            graph, edge_index_combined, edge_type_combined):
+    def run(self, train_dataset, val_dataset, test_dataset, graph):
         train_loader = DataLoader(dataset=train_dataset, batch_size=self.train_batch_size, shuffle=True,
                                   collate_fn=pad_collate_mids, pin_memory=True)
         val_loader = DataLoader(dataset=val_dataset, batch_size=self.test_batch_size, shuffle=False,
@@ -75,82 +82,86 @@ class Trainer(object):
 
         for epoch in range(self.epochs):
             # train
-            train_result = self.train_one_epoch(train_loader, graph, edge_index_combined, edge_type_combined)
+            train_loss, train_results = self.train_one_epoch(train_loader, graph)
             if (epoch + 1) % 1 == 0:
-                print('[Train] epoch: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (epoch,
-                                                                                           train_result['acc'],
-                                                                                           train_result['f1'],
-                                                                                           train_result['recall'],
-                                                                                           train_result['pre'])
+                print('[Train] epoch: %d, loss: %.4f, acc: %.4f, f1: %.4f, recall: %.4f, '
+                      'pre: %.4f, auc: %.4f' % (epoch,
+                                                train_loss,
+                                                train_results['acc'],
+                                                train_results['f1'],
+                                                train_results['recall'],
+                                                train_results['pre'],
+                                                train_results['auc'])
                       )
             # validate
-            val_result = self.evaluate(val_loader, graph, edge_index_combined, edge_type_combined)
-            if (epoch + 1) % 1 == 0:
-                print('[Valid] epoch: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (epoch,
-                                                                                           val_result['acc'],
-                                                                                           val_result['f1'],
-                                                                                           val_result['recall'],
-                                                                                           val_result['pre'])
+            val_loss, val_results = self.evaluate(val_loader, graph)
+            if (epoch + 1) % 5 == 0:
+                print('[Valid] epoch: %d, loss: %.4f, acc: %.4f, f1: %.4f, recall: %.4f, '
+                      'pre: %.4f, auc: %.4f' % (epoch,
+                                                val_loss,
+                                                val_results['acc'],
+                                                val_results['f1'],
+                                                val_results['recall'],
+                                                val_results['pre'],
+                                                val_results['auc'])
                       )
-            val_metric = val_result['f1']
-            if val_metric > best_val_metric:
-                best_val_metric = val_metric
-                best_val_epoch = epoch
-                best_val_result = val_result
-            if epoch - best_val_epoch > self.patience:
-                print('Stop at epoch %d' % (epoch + 1))
-                break
+
+            val_metric = val_results['f1']
+            if epoch > self.min_epochs:
+                if val_metric > best_val_metric:
+                    best_val_metric = val_metric
+                    best_val_epoch = epoch
+                    best_val_result = val_results
+                if epoch - best_val_epoch > self.patience:
+                    print('Stop at epoch %d' % (epoch + 1))
+                    break
 
         # test
-        test_result = self.evaluate(test_loader, graph, edge_index_combined, edge_type_combined)
-        # print('[Test] epoch: %d, acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f' % (epoch,
-        #                                                                           test_result['acc'],
-        #                                                                           test_result['f1'],
-        #                                                                           test_result['recall'],
-        #                                                                           test_result['pre'])
-        #       )
-        # test_metric = test_result['f1']
-        # if test_metric > best_test_metric:
-        #     best_test_metric = test_metric
-        #     best_test_epoch = epoch
-        #     best_test_result = test_result
+        test_loss, test_results = self.evaluate(test_loader, graph)
 
-        return test_result
+        return test_results
 
-    def train_one_epoch(self, train_loader, graph, edge_index_combined, edge_type_combined):
-        train_result = ddict(list)
+    def train_one_epoch(self, train_loader, graph):
+        full_targets, full_predicted_labels = [], []
+        total_loss = 0
+        total_count = 0
         self.model.train()
 
         for batch in train_loader:
             self.optimizer.zero_grad()
             batch = batch.to(self.device)
-            bce_loss, acc, f1, recall, pre, auc = self.model(batch, graph, edge_index_combined, edge_type_combined)
-            loss = bce_loss
+            loss, targets, predicted_labels = self.model(batch, graph)
+
             loss.backward()
             self.optimizer.step()
 
-            loss_scalar = loss.detach()
+            total_loss += loss.detach().cpu().item() * len(batch)
+            total_count += len(batch)
+            full_targets = full_targets + targets.tolist()
+            full_predicted_labels = full_predicted_labels + predicted_labels.tolist()
 
-            train_result['acc'].append(acc)
-            train_result['f1'].append(f1)
-            train_result['recall'].append(recall)
-            train_result['pre'].append(pre)
-        for k, v in train_result.items():
-            train_result[k] = np.mean(v)
-        return train_result
+        train_results = cal_results(predicted_labels=full_predicted_labels, targets=full_targets)
+        loss = total_loss / total_count
+
+        return loss, train_results
 
     @torch.no_grad()
-    def evaluate(self, loader, graph, edge_index_combined, edge_type_combined):
-        eval_result = ddict(list)
+    def evaluate(self, loader, graph):
+        full_targets, full_predicted_labels = [], []
+        total_loss = 0
+        total_count = 0
+
         self.model.eval()
         for batch in loader:
             batch = batch.to(self.device)
-            bce_loss, acc, f1, recall, pre, auc = self.model(batch, graph, edge_index_combined, edge_type_combined)
-            eval_result['acc'].append(acc)
-            eval_result['f1'].append(f1)
-            eval_result['recall'].append(recall)
-            eval_result['pre'].append(pre)
-        for k, v in eval_result.items():
-            eval_result[k] = np.mean(v)
-        return eval_result
+            loss, targets, predicted_labels = self.model(batch, graph)
 
+            total_loss += loss.detach().cpu().item() * len(batch)
+            total_count += len(batch)
+            full_targets = full_targets + targets.tolist()
+            full_predicted_labels = full_predicted_labels + predicted_labels.tolist()
+
+        eval_results = cal_results(predicted_labels=full_predicted_labels, targets=full_targets)
+        loss = total_loss / total_count
+
+        return loss, eval_results

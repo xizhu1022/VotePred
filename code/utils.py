@@ -1,11 +1,12 @@
 import random
+from collections import defaultdict
+
+import dgl
 import numpy as np
 import scipy.sparse as sp
 import torch
-import torch.nn.functional as F
-from collections import defaultdict
-
 from sklearn.metrics import f1_score, recall_score, precision_score, roc_auc_score
+
 
 def seed_everything(seed=42):
     random.seed(seed)
@@ -13,10 +14,32 @@ def seed_everything(seed=42):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    # dgl.seed(seed)
-    # dgl.random.seed(seed)
+    dgl.seed(seed)
+    dgl.random.seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False  # if benchmark=True, deterministic will be False
+
+
+def cal_results(predicted_labels, targets):
+    correct = np.sum(np.array(predicted_labels) == np.array(targets))
+
+    acc = correct / len(targets)
+    try:
+        f1 = f1_score(targets, predicted_labels)
+    except:
+        raise ValueError
+    recall = recall_score(targets, predicted_labels)
+    pre = precision_score(targets, predicted_labels)
+    auc = roc_auc_score(targets, predicted_labels)
+
+    results = dict()
+    results['acc'] = acc
+    results['f1'] = f1
+    results['recall'] = recall
+    results['pre'] = pre
+    results['auc'] = auc
+
+    return results
 
 
 def laplace_transform(graph):
@@ -57,7 +80,6 @@ def generate_G_from_H(H):
     # else:
     #     raise NotImplementedError
     return G
-
 
 
 def matrix2dict(matrix: sp.csr_matrix):
