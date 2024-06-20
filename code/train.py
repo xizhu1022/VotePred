@@ -122,7 +122,7 @@ class Trainer(object):
         return test_results
 
     def train_one_epoch(self, train_loader, graph):
-        full_targets, full_predicted_labels = [], []
+        full_targets, full_predictions, full_predicted_labels = [], [], []
         total_loss = 0
         total_count = 0
         self.model.train()
@@ -130,7 +130,7 @@ class Trainer(object):
         for batch in train_loader:
             self.optimizer.zero_grad()
             batch = batch.to(self.device)
-            loss, targets, predicted_labels = self.model(batch, graph)
+            loss, targets, predictions, predicted_labels = self.model(batch, graph)
 
             loss.backward()
             self.optimizer.step()
@@ -138,30 +138,36 @@ class Trainer(object):
             total_loss += loss.detach().cpu().item() * len(batch)
             total_count += len(batch)
             full_targets = full_targets + targets.tolist()
+            full_predictions = full_predictions + predictions.tolist()
             full_predicted_labels = full_predicted_labels + predicted_labels.tolist()
 
-        train_results = cal_results(predicted_labels=full_predicted_labels, targets=full_targets)
+        train_results = cal_results(predictions=full_predictions,
+                                    predicted_labels=full_predicted_labels,
+                                    targets=full_targets)
         loss = total_loss / total_count
 
         return loss, train_results
 
     @torch.no_grad()
     def evaluate(self, loader, graph):
-        full_targets, full_predicted_labels = [], []
+        full_targets, full_predictions, full_predicted_labels = [], [], []
         total_loss = 0
         total_count = 0
 
         self.model.eval()
         for batch in loader:
             batch = batch.to(self.device)
-            loss, targets, predicted_labels = self.model(batch, graph)
+            loss, targets, predictions, predicted_labels = self.model(batch, graph)
 
             total_loss += loss.detach().cpu().item() * len(batch)
             total_count += len(batch)
             full_targets = full_targets + targets.tolist()
+            full_predictions = full_predictions + predictions.tolist()
             full_predicted_labels = full_predicted_labels + predicted_labels.tolist()
 
-        eval_results = cal_results(predicted_labels=full_predicted_labels, targets=full_targets)
+        eval_results = cal_results(predictions=full_predictions,
+                                   predicted_labels=full_predicted_labels,
+                                   targets=full_targets)
         loss = total_loss / total_count
 
         return loss, eval_results

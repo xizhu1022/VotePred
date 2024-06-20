@@ -387,7 +387,7 @@ class RGCN_DualAttn_FFNN(nn.Module):
 
         loss = torch.mean(-torch.log(torch.sigmoid(pos_scores - neg_scores)))
 
-       
+
         return loss
 
     def cal_loss(self, pos_pre, neg_pre, node_embeddings):
@@ -414,12 +414,13 @@ class RGCN_DualAttn_FFNN(nn.Module):
         loss = self.lambda_1 * loss_1 + self.lambda_2 * loss_2 + self.lambda_3 * loss_3
 
         # loss = loss / batch_size
-
-        predicted_labels = torch.round(torch.sigmoid(predictions))
+        predictions = torch.sigmoid(predictions)
+        predicted_labels = torch.round(predictions)
         targets = targets.detach().cpu().numpy()
+        predictions = predictions.detach().cpu().numpy()
         predicted_labels = predicted_labels.detach().cpu().numpy()
 
-        return loss, targets, predicted_labels
+        return loss, targets, predictions, predicted_labels
 
 #
 # class RGCN_Merge(nn.Module):

@@ -20,17 +20,14 @@ def seed_everything(seed=42):
     torch.backends.cudnn.benchmark = False  # if benchmark=True, deterministic will be False
 
 
-def cal_results(predicted_labels, targets):
+def cal_results(predictions, predicted_labels, targets):
     correct = np.sum(np.array(predicted_labels) == np.array(targets))
 
     acc = correct / len(targets)
-    try:
-        f1 = f1_score(targets, predicted_labels)
-    except:
-        raise ValueError
+    f1 = f1_score(targets, predicted_labels)
     recall = recall_score(targets, predicted_labels)
     pre = precision_score(targets, predicted_labels)
-    auc = roc_auc_score(targets, predicted_labels)
+    auc = roc_auc_score(targets, predictions)
 
     results = dict()
     results['acc'] = acc
