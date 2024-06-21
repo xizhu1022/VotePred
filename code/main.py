@@ -24,7 +24,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--data_path', type=str, default='../data_0609', help='data path')
     parser.add_argument('--model_path', type=str, default='../saves', help='model path')
-    parser.add_argument('--gpu', type=int, default=2, help='gpu_id')
+    parser.add_argument('--gpu', type=int, default=0, help='gpu_id')
     parser.add_argument('--lr', type=float, default=2e-4, help='learning rate')
     parser.add_argument('--epochs', type=int, default=200, help='epochs')
     parser.add_argument('--min_epochs', type=int, default=30, help='minimum epochs')
