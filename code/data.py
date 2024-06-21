@@ -243,6 +243,7 @@ class MyData(object):
             self.mid2results[mid] = this_mid_dict
         # legislator - congress - vote - vote_list (bills)
         mid_cid_results_dict = np.load(os.path.join(self.load_path, 'mid_cid_results_dict.npy'), allow_pickle=True).item()
+
         self.mid_cid2results = dict()
         for mid, cid_results in mid_cid_results_dict.items():
             mid = self.node2index[mid]

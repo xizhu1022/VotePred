@@ -2,7 +2,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from sklearn.metrics import f1_score, recall_score, precision_score, roc_auc_score
 from torch_geometric.nn import RGCNConv
 
 from hgb import myGAT
@@ -131,9 +130,12 @@ class RGCN_DualAttn_FFNN(nn.Module):
                  num_relations,
                  num_layers,
                  num_heads,
-                 dropout,
+                 dropout_1,
+                 dropout_2,
+                 negative_slope,
                  lambda_1,
                  lambda_2,
+                 alpha,
                  pretrained,
                  data):
         super(RGCN_DualAttn_FFNN, self).__init__()
@@ -142,11 +144,15 @@ class RGCN_DualAttn_FFNN(nn.Module):
         self.num_relations = num_relations
         self.num_layers = num_layers
         self.n_head = num_heads
-        self.dropout = dropout
-        self.pretrained = pretrained
+        self.dropout_1 = dropout_1
+        self.dropout_2 = dropout_2
+        self.negative_slope = negative_slope
         self.data = data
         self.lambda_1 = lambda_1
         self.lambda_2 = lambda_2
+        self.alpha = alpha
+
+        self.pretrained = pretrained
 
         if self.pretrained is not None:
             self.node_embeddings = nn.Parameter(torch.FloatTensor(self.num_nodes, 768))
@@ -166,11 +172,11 @@ class RGCN_DualAttn_FFNN(nn.Module):
                 num_layers=self.num_layers,
                 heads=[self.n_head] * self.num_layers,
                 activation=F.relu,
-                feat_drop=0.05,
-                attn_drop=0.05,
-                negative_slope=0.2,
+                feat_drop=self.dropout_1,
+                attn_drop=self.dropout_1,
+                negative_slope=self.negative_slope,
                 residual=False,
-                alpha=0.05)
+                alpha=self.alpha)
 
         elif self.pre_encoder == 'RGCN':
             self.RGCN = RGCNModel(
@@ -182,7 +188,7 @@ class RGCN_DualAttn_FFNN(nn.Module):
 
         self.DualAttn = DualAttention(d_model=self.dim,
                                       num_heads=self.n_head,
-                                      dropout=self.dropout)
+                                      dropout=self.dropout_2)
 
         self.FusionAttn = nn.MultiheadAttention(embed_dim=self.dim * 2,
                                                 num_heads=self.n_head
@@ -387,34 +393,31 @@ class RGCN_DualAttn_FFNN(nn.Module):
 
         loss = torch.mean(-torch.log(torch.sigmoid(pos_scores - neg_scores)))
 
-
         return loss
 
     def cal_loss(self, pos_pre, neg_pre, node_embeddings):
         batch_size = len(pos_pre)
-        # loss_1 roll call prediction
+        # loss roll call prediction
         targets = torch.cat([torch.ones_like(pos_pre), torch.zeros_like(pos_pre)], dim=0)
         predictions = torch.cat([pos_pre, neg_pre], dim=0)
-        loss_1 = F.binary_cross_entropy_with_logits(predictions, targets)
+        main_loss = F.binary_cross_entropy_with_logits(predictions, targets)
 
-        # loss_2 group similarity
-        loss_2 = 0
+        # loss_1 group similarity
+        loss_1 = 0
         # committee / twitter / state / party
+        if self.lambda_1 > 0:
+            loss_1 += self.cal_sim_loss(self.data.committee_network_pairs, batch_size, node_embeddings)
+            loss_1 += self.cal_sim_loss(self.data.state_network_pairs, batch_size, node_embeddings)
+            loss_1 += self.cal_sim_loss(self.data.twitter_network_pairs, batch_size, node_embeddings)
+            loss_1 += self.cal_sim_loss(self.data.party_network_pairs, batch_size, node_embeddings)
+            loss_1 = loss_1 / 4
+
+        # loss_2 sponsorship priority
+        loss_2 = 0
         if self.lambda_2 > 0:
-            loss_2 += self.cal_sim_loss(self.data.committee_network_pairs, batch_size, node_embeddings)
-            loss_2 += self.cal_sim_loss(self.data.state_network_pairs, batch_size, node_embeddings)
-            loss_2 += self.cal_sim_loss(self.data.twitter_network_pairs, batch_size, node_embeddings)
-            loss_2 += self.cal_sim_loss(self.data.party_network_pairs, batch_size, node_embeddings)
-            loss_2 = loss_2 / 4
+            loss_2 += self.cal_priority_loss(batch_size, node_embeddings)
 
-        # loss_3 sponsorship priority
-        loss_3 = 0
-        self.lambda_3 = 1 - self.lambda_1 - self.lambda_2
-        if self.lambda_3 > 0:
-            loss_3 += self.cal_priority_loss(batch_size, node_embeddings)
-
-
-        loss = self.lambda_1 * loss_1 + self.lambda_2 * loss_2 + self.lambda_3 * loss_3
+        loss = main_loss + self.lambda_1 * loss_1 + self.lambda_2 * loss_2
 
         # loss = loss / batch_size
         predictions = torch.sigmoid(predictions)
@@ -550,4 +553,3 @@ class RGCN_DualAttn_FFNN(nn.Module):
 #         bce_loss, accuracy, f1, recall, precision, auc = cal_loss(pos_pre, neg_pre)
 #
 #         return bce_loss, accuracy, f1, recall, precision, auc
-

@@ -112,7 +112,7 @@ class Trainer(object):
                                                 val_results['auc'])
                       )
 
-            val_metric = val_results['f1']
+            val_metric = val_results['f1']  # val_loss
             if epoch > self.min_epochs:
                 if val_metric > best_val_metric:
                     best_val_metric = val_metric

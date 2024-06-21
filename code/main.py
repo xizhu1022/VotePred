@@ -24,16 +24,19 @@ if __name__ == '__main__':
 
     parser.add_argument('--data_path', type=str, default='../data_0609', help='data path')
     parser.add_argument('--model_path', type=str, default='../saves', help='model path')
-    parser.add_argument('--gpu', type=int, default=0, help='gpu_id')
-    parser.add_argument('--lr', type=float, default=2e-4, help='learning rate')
+    parser.add_argument('--gpu', type=int, default=1, help='gpu_id')
+    parser.add_argument('--lr', type=float, default=2e-4, help='learning rate')  # 1e-4
     parser.add_argument('--epochs', type=int, default=200, help='epochs')
     parser.add_argument('--min_epochs', type=int, default=30, help='minimum epochs')
     parser.add_argument('--patience', type=int, default=20, help='patience')
     parser.add_argument('--num_heads', type=int, default=1, help='num_heads')
     parser.add_argument('--num_layers', type=int, default=3, help='num_layers')
-    parser.add_argument('--dropout', type=float, default=0.0, help='dropout')
-    parser.add_argument('--lambda_1', type=float, default=0.9, help='lambda_1')
+    parser.add_argument('--dropout_1', type=float, default=0.05, help='dropout')
+    parser.add_argument('--dropout_2', type=float, default=0.05, help='dropout')
+    parser.add_argument('--negative_slope', type=float, default=0.2, help='negative_slope')
+    parser.add_argument('--lambda_1', type=float, default=0.05, help='lambda_1')
     parser.add_argument('--lambda_2', type=float, default=0.05, help='lambda_2')
+    parser.add_argument('--alpha', type=float, default=0.05, help='alpha')
     parser.add_argument('--train_batch_size', type=int, default=64, help='train_batch_size')
     parser.add_argument('--test_batch_size', type=int, default=64, help='test_batch_size')
     parser.add_argument('--embedding_size', type=int, default=64, help='embedding_size')
@@ -56,9 +59,12 @@ if __name__ == '__main__':
             num_relations=myData.num_rels,
             num_layers=args.num_layers,
             num_heads=args.num_heads,
-            dropout=args.dropout,
+            dropout_1=args.dropout_1,
+            dropout_2=args.dropout_2,
+            negative_slope=args.negative_slope,
             lambda_1=args.lambda_1,
             lambda_2=args.lambda_2,
+            alpha=args.alpha,
             pretrained=myData.pretrained_embeddings,
             data=myData
         )
