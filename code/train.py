@@ -1,4 +1,5 @@
 from collections import defaultdict as ddict
+from time import time
 
 import numpy as np
 import torch
@@ -30,14 +31,14 @@ class Trainer(object):
         return optimizer
 
     def multiple_runs(self):
+        overall_start = time()
         all_run_result = ddict(list)
 
         for cid in self.cidstart_list:
             print('------------{}-------------'.format(cid))
+            run_start = time()
             graph = self.data.build_graph(cid_latest=cid + 4)
             graph = graph.to(self.device)
-            # edge_index_combined = self.data.edge_index_combined.to(self.device)
-            # edge_type_combined = self.data.edge_type_combined.to(self.device)
             self.data.get_dataset_mids(cidstart=cid)
 
             train_dataset = self.data.get_train_dataset_mids()
@@ -46,12 +47,13 @@ class Trainer(object):
 
             run_results = self.run(train_dataset, val_dataset, test_dataset, graph)
             print('[Run] cid: %d, acc: %.4f, f1: %.4f, recall: %.4f, '
-                  'pre: %.4f, auc: %.4f' % (cid,
-                                            run_results['acc'],
-                                            run_results['f1'],
-                                            run_results['recall'],
-                                            run_results['pre'],
-                                            run_results['auc'])
+                  'pre: %.4f, auc: %.4f, time: %.4f' % (cid,
+                                                        run_results['acc'],
+                                                        run_results['f1'],
+                                                        run_results['recall'],
+                                                        run_results['pre'],
+                                                        run_results['auc'],
+                                                        time() - run_start)
                   )
 
             for metric, result in run_results.items():
@@ -61,11 +63,13 @@ class Trainer(object):
             # torch.cuda.empty_cache()
             # gc.collect()
 
-        print('[Overall] acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f, auc: %.4f' % (np.mean(all_run_result['acc']),
-                                                                                     np.mean(all_run_result['f1']),
-                                                                                     np.mean(all_run_result['recall']),
-                                                                                     np.mean(all_run_result['pre']),
-                                                                                     np.mean(all_run_result['auc']))
+        print('[Overall] acc: %.4f, f1: %.4f, recall: %.4f, pre: %.4f, '
+              'auc: %.4f, time: %.4f' % (np.mean(all_run_result['acc']),
+                                         np.mean(all_run_result['f1']),
+                                         np.mean(all_run_result['recall']),
+                                         np.mean(all_run_result['pre']),
+                                         np.mean(all_run_result['auc']),
+                                         time() - overall_start)
               )
 
     def run(self, train_dataset, val_dataset, test_dataset, graph):
@@ -77,21 +81,23 @@ class Trainer(object):
                                  collate_fn=pad_collate_mids, pin_memory=True)
 
         best_val_metric, best_val_epoch = 0., 0
-        best_test_metric, best_test_epoch = 0., 0
-        best_val_result, best_test_result = {}, {}
+        # best_test_metric, best_test_epoch = 0., 0
+        # best_val_result, best_test_result = {}, {}
 
         for epoch in range(self.epochs):
             # train
+            epoch_start = time()
             train_loss, train_results = self.train_one_epoch(train_loader, graph)
             if (epoch + 1) % 1 == 0:
                 print('[Train] epoch: %d, loss: %.4f, acc: %.4f, f1: %.4f, recall: %.4f, '
-                      'pre: %.4f, auc: %.4f' % (epoch,
-                                                train_loss,
-                                                train_results['acc'],
-                                                train_results['f1'],
-                                                train_results['recall'],
-                                                train_results['pre'],
-                                                train_results['auc'])
+                      'pre: %.4f, auc: %.4f, time: %.4f' % (epoch,
+                                                            train_loss,
+                                                            train_results['acc'],
+                                                            train_results['f1'],
+                                                            train_results['recall'],
+                                                            train_results['pre'],
+                                                            train_results['auc'],
+                                                            time() - epoch_start)
                       )
             # validate
             val_loss, val_results = self.evaluate(val_loader, graph)

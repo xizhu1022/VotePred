@@ -28,7 +28,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=2e-4, help='learning rate')
     parser.add_argument('--epochs', type=int, default=200, help='epochs')
     parser.add_argument('--min_epochs', type=int, default=30, help='minimum epochs')
-    parser.add_argument('--patience', type=int, default=10, help='patience')
+    parser.add_argument('--patience', type=int, default=20, help='patience')
     parser.add_argument('--num_heads', type=int, default=1, help='num_heads')
     parser.add_argument('--num_layers', type=int, default=3, help='num_layers')
     parser.add_argument('--dropout', type=float, default=0.0, help='dropout')
@@ -47,7 +47,6 @@ if __name__ == '__main__':
     seed_everything()
 
     # Dataset and Model
-    start = time()
     myData = MyData(args.data_path)
 
     if args.model_name == 'RGCN_DualAttn_FFNN':
@@ -83,7 +82,6 @@ if __name__ == '__main__':
                       args=args
                       )
     trainer.multiple_runs()
-    print('[Time] total: %4f seconds' % (time()-start))
 
 
 

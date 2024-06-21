@@ -400,17 +400,20 @@ class RGCN_DualAttn_FFNN(nn.Module):
         # loss_2 group similarity
         loss_2 = 0
         # committee / twitter / state / party
-        loss_2 += self.cal_sim_loss(self.data.committee_network_pairs, batch_size, node_embeddings)
-        loss_2 += self.cal_sim_loss(self.data.state_network_pairs, batch_size, node_embeddings)
-        loss_2 += self.cal_sim_loss(self.data.twitter_network_pairs, batch_size, node_embeddings)
-        loss_2 += self.cal_sim_loss(self.data.party_network_pairs, batch_size, node_embeddings)
-        loss_2 = loss_2 / 4
+        if self.lambda_2 > 0:
+            loss_2 += self.cal_sim_loss(self.data.committee_network_pairs, batch_size, node_embeddings)
+            loss_2 += self.cal_sim_loss(self.data.state_network_pairs, batch_size, node_embeddings)
+            loss_2 += self.cal_sim_loss(self.data.twitter_network_pairs, batch_size, node_embeddings)
+            loss_2 += self.cal_sim_loss(self.data.party_network_pairs, batch_size, node_embeddings)
+            loss_2 = loss_2 / 4
 
         # loss_3 sponsorship priority
         loss_3 = 0
-        loss_3 += self.cal_priority_loss(batch_size, node_embeddings)
-
         self.lambda_3 = 1 - self.lambda_1 - self.lambda_2
+        if self.lambda_3 > 0:
+            loss_3 += self.cal_priority_loss(batch_size, node_embeddings)
+
+
         loss = self.lambda_1 * loss_1 + self.lambda_2 * loss_2 + self.lambda_3 * loss_3
 
         # loss = loss / batch_size
