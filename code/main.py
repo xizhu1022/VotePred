@@ -12,11 +12,12 @@ import torch.optim as optim
 from sklearn.metrics import f1_score, recall_score, precision_score, roc_auc_score
 from torch.utils.data import DataLoader, SubsetRandomSampler, Dataset
 from utils import seed_everything
+from loguru import logger
 
 from data import MyData
 from model import RGCN_DualAttn_FFNN
 from train import Trainer
-from time import time
+import time
 
 
 if __name__ == '__main__':
@@ -24,6 +25,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--data_path', type=str, default='../data_0609', help='data path')
     parser.add_argument('--model_path', type=str, default='../saves', help='model path')
+    parser.add_argument('--log_path', type=str, default='../log', help='model path')
     parser.add_argument('--gpu', type=int, default=1, help='gpu_id')
     parser.add_argument('--lr', type=float, default=2e-4, help='learning rate')  # 1e-4
     parser.add_argument('--epochs', type=int, default=200, help='epochs')
@@ -80,14 +82,18 @@ if __name__ == '__main__':
     else:
         raise NotImplementedError
 
+    # Log
+    args.this_time = time.strftime("%Y-%m-%d %H_%M_%S", time.localtime())
+    logfile = '{}_{}'.format(args.model_name, args.this_time)
+    logger.add('{}/{}.log'.format(args.log_path, logfile), encoding='utf-8')
+
     model = model.to(args.device)
 
     # Train
+    logger.info(args.__str__())
+    logger.info('[File] save to {}.'.format(logfile))
+    logger.info(model)
     trainer = Trainer(model=model,
                       data=myData,
-                      args=args
-                      )
+                      args=args)
     trainer.multiple_runs()
-
-
-

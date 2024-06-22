@@ -193,13 +193,13 @@ class RGCN_DualAttn_FFNN(nn.Module):
         self.FusionAttn = nn.MultiheadAttention(embed_dim=self.dim * 2,
                                                 num_heads=self.n_head
                                                 )
-        self.LegislatorMLP = nn.Linear(in_features=self.dim * 2, out_features=self.dim)
+        self.BillMLP = nn.Linear(in_features=self.dim * 2, out_features=self.dim)
         self.PredictorLayer = Predictor()
 
         self.initialize()
 
     def initialize(self):
-        nn.init.xavier_normal_(self.LegislatorMLP.weight)
+        nn.init.xavier_normal_(self.BillMLP.weight)
         if self.pretrained is not None:
             self.node_embeddings.data.copy_(self.pretrained)
         else:
@@ -253,7 +253,7 @@ class RGCN_DualAttn_FFNN(nn.Module):
                                             key=pos_embeddings,
                                             value=pos_embeddings)
         pos_embeddings = pos_embeddings.squeeze(0)  # (bsz, 2*dim)
-        pos_embeddings = self.LegislatorMLP(pos_embeddings)  # (bsz, dim)
+        pos_embeddings = self.BillMLP(pos_embeddings)  # (bsz, dim)
 
         neg_left_embeddings, neg_right_embeddings = self.DualAttn(node_embeddings=node_embeddings,
                                                                   query_idx=mid_batch,
@@ -268,7 +268,7 @@ class RGCN_DualAttn_FFNN(nn.Module):
                                             key=neg_embeddings,
                                             value=neg_embeddings)
         neg_embeddings = neg_embeddings.squeeze(0)
-        neg_embeddings = self.LegislatorMLP(neg_embeddings)
+        neg_embeddings = self.BillMLP(neg_embeddings)
 
         # pos_scores = self.FFNN(left_embeddings=pos_left_embeddings,
         #                        right_embeddings=pos_right_embeddings,
@@ -397,14 +397,14 @@ class RGCN_DualAttn_FFNN(nn.Module):
 
     def cal_loss(self, pos_pre, neg_pre, node_embeddings):
         batch_size = len(pos_pre)
-        # loss roll call prediction
+
+        # main_loss: roll call prediction
         targets = torch.cat([torch.ones_like(pos_pre), torch.zeros_like(pos_pre)], dim=0)
         predictions = torch.cat([pos_pre, neg_pre], dim=0)
         main_loss = F.binary_cross_entropy_with_logits(predictions, targets)
 
-        # loss_1 group similarity
+        # loss_1 group similarity committee / twitter / state / party
         loss_1 = 0
-        # committee / twitter / state / party
         if self.lambda_1 > 0:
             loss_1 += self.cal_sim_loss(self.data.committee_network_pairs, batch_size, node_embeddings)
             loss_1 += self.cal_sim_loss(self.data.state_network_pairs, batch_size, node_embeddings)
@@ -419,7 +419,6 @@ class RGCN_DualAttn_FFNN(nn.Module):
 
         loss = main_loss + self.lambda_1 * loss_1 + self.lambda_2 * loss_2
 
-        # loss = loss / batch_size
         predictions = torch.sigmoid(predictions)
         predicted_labels = torch.round(predictions)
         targets = targets.detach().cpu().numpy()

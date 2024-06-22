@@ -1,6 +1,6 @@
 import random
 from collections import defaultdict
-
+import os
 import dgl
 import numpy as np
 import scipy.sparse as sp
@@ -84,3 +84,8 @@ def matrix2dict(matrix: sp.csr_matrix):
     for i, j in zip(matrix.nonzero()[0], matrix.nonzero()[1]):
         result[i].append(j)
     return result
+
+
+def create_directory_if_not_exists(path):
+    if not os.path.exists(path):
+        os.makedirs(path)

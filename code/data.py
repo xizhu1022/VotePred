@@ -4,6 +4,7 @@ import random
 import numpy as np
 import scipy.sparse as sp
 import torch
+from loguru import logger
 from torch.utils.data import Dataset
 
 import dgl
@@ -334,7 +335,7 @@ class MyData(object):
         graph = dgl.graph((self.edge_index_combined[0], self.edge_index_combined[1]), num_nodes=self.num_nodes)
         graph.edata['etype'] = self.edge_type_combined
 
-        print('[Data] cid_latest={}, edges={}'.format(cid_latest, len(self.edge_index_combined[0])))
+        logger.info('[Data] cid_latest={}, edges={}'.format(cid_latest, len(self.edge_index_combined[0])))
         return graph
 
     def get_dataset_vids(self, cidstart):
@@ -399,7 +400,7 @@ class MyData(object):
                     this_mid_dict[vote] += vote_list
             self.test_mid2results[mid] = this_mid_dict
 
-        print('[Data] cid={}, train_mids={}, full_mids={}, valid_mids={}, val_mids={}, test_mids={}'.format(
+        logger.info('[Data] cid={}, train_mids={}, full_mids={}, valid_mids={}, val_mids={}, test_mids={}'.format(
             cidstart, len(self.train_mids), len(full_mids), len(mids), len(self.val_mids), len(self.test_mids)))
 
     def get_train_dataset_mids(self):

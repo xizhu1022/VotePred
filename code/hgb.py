@@ -10,7 +10,6 @@ from torch import nn
 
 class myGAT(nn.Module):
     def __init__(self,
-                 # g,
                  edge_dim,
                  num_etypes,
                  in_dims,
