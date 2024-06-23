@@ -7,26 +7,6 @@ from torch_geometric.nn import RGCNConv
 from hgb import myGAT
 
 
-class MergeLayer(nn.Module):
-    def __init__(self, dim):
-        super().__init__()
-        self.fc1 = nn.Linear(in_features=dim, out_features=dim // 2)
-        self.fc2 = nn.Linear(in_features=dim // 2, out_features=1)
-        self.act = nn.ReLU()
-
-    def initialize(self):
-        nn.init.xavier_normal_(self.fc1.weight)
-        nn.init.xavier_normal_(self.fc2.weight)
-
-    def forward(self, x1, x2):
-        x = torch.cat([x1, x2], dim=1)
-        x = x.float()
-        x = self.fc1(x)
-        x = self.act(x)
-        x = self.fc2(x)
-        return x
-
-
 class FFNN(nn.Module):
     def __init__(self, input_dim):
         super(FFNN, self).__init__()
@@ -255,12 +235,12 @@ class RGCN_DualAttn_FFNN(nn.Module):
                 alpha=self.alpha)
 
         # elif self.pre_encoder == 'RGCN':  # TODO
-            # self.RGCN = RGCNModel(
-            #     in_channels=self.dim,
-            #     out_channels=self.dim,
-            #     num_relations=self.num_relations,
-            #     edge_index=self.edge_index,
-            #     edge_type=self.edge_type)
+        # self.RGCN = RGCNModel(
+        #     in_channels=self.dim,
+        #     out_channels=self.dim,
+        #     num_relations=self.num_relations,
+        #     edge_index=self.edge_index,
+        #     edge_type=self.edge_type)
 
         self.DualAttn = DualAttention(d_model=self.dim,
                                       num_heads=self.num_heads,

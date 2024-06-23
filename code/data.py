@@ -209,9 +209,11 @@ class MyData(object):
                                           allow_pickle=True).item()  # 8065
 
         # initialized embeddings 11 + 8165(法案)+1674(立法者)+1753(主题)
+
     def load_pretrained_embeddings(self):
         self.null_embeddings = torch.cat([torch.rand(768, 1) for _ in range(11)], dim=1)  # 11 padding
-        self.mid_embeddings = torch.cat([self.mid_embedding_dict[_].reshape(-1, 1) for _ in self.mid_list], dim=1)  # bills
+        self.mid_embeddings = torch.cat([self.mid_embedding_dict[_].reshape(-1, 1) for _ in self.mid_list],
+                                        dim=1)  # bills
         self.subject_embeddings = torch.cat([self.subject_embedding_dict[_].reshape(-1, 1) for _ in self.subject_list],
                                             dim=1)  # legislators
         self.vid_embeddings = torch.cat([self.vid_embedding_dict[_].reshape(-1, 1) for _ in self.vid_list],

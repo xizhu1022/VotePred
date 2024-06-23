@@ -43,9 +43,6 @@ class myGAT(nn.Module):
                                              feat_drop, attn_drop, negative_slope, residual, self.activation,
                                              allow_zero_in_degree=True, alpha=alpha))
         # output projection
-        # self.gat_layers.append(myGATConv(edge_dim, num_etypes,
-        #                                  num_hidden * heads[-2], num_classes, heads[-1],
-        #                                  feat_drop, attn_drop, negative_slope, residual, None, alpha=alpha))
         self.gat_layers.append(myGATConv(edge_dim, num_etypes,
                                          num_hidden * heads[-2], num_hidden, heads[-1],
                                          feat_drop, attn_drop, negative_slope, residual, None,

@@ -1,6 +1,7 @@
+import os
 import random
 from collections import defaultdict
-import os
+
 import dgl
 import numpy as np
 import scipy.sparse as sp
