@@ -78,7 +78,7 @@ if __name__ == '__main__':
         raise NotImplementedError
 
     # Log
-    args.this_time = time.strftime("%Y-%m-%d %H_%M_%S", time.localtime())
+    args.this_time = time.strftime("%Y-%m-%d_%H_%M_%S", time.localtime())
     logfile = '{}_{}'.format(args.model_name, args.this_time)
     logger.add('{}/{}.log'.format(args.log_path, logfile), encoding='utf-8')
 

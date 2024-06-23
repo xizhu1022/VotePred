@@ -108,8 +108,8 @@ class MyData(object):
         self.if_cold_start = if_cold_start
         self.load_data()
 
-        self.num_nodes = len(self.node_list)
-        self.num_rels = 7  # max(self.edge_type_combined.data).item() + 1
+        self.num_nodes = len(self.node2index)
+        self.num_rels = 7
 
     def load_data(self):
         # 加载实体   法案立法者与国会届次相关, 主题委员会党派与国会届次无关
@@ -206,9 +206,7 @@ class MyData(object):
         self.subject_embedding_dict = np.load(os.path.join(self.data_path, 'subject_embedding_dict.npy'),
                                               allow_pickle=True).item()  # 1753
         self.vid_embedding_dict = np.load(os.path.join(self.data_path, 'vid_embedding_dict.npy'),
-                                          allow_pickle=True).item()  # 8065
-
-        # initialized embeddings 11 + 8165(法案)+1674(立法者)+1753(主题)
+                                          allow_pickle=True).item()
 
     def load_pretrained_embeddings(self):
         self.null_embeddings = torch.cat([torch.rand(768, 1) for _ in range(11)], dim=1)  # 11 padding

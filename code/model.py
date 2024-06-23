@@ -151,9 +151,6 @@ class DualAttention(nn.Module):
         sponser_embeddings = node_embeddings[sponser_idx].transpose(0, 1)  # (num_sponsers, bsz, dim)
         subject_embeddings = node_embeddings[subject_idx].transpose(0, 1)  # (num_subjects, bsz, dim)
 
-        # sponser_masks = sponser_masks.transpose(0, 1)
-        # subject_masks = subject_masks.transpose(0, 1)
-
         left_embeddings, left_weights = self.left_attn(query=query_embeddings,
                                                        key=sponser_embeddings,
                                                        value=sponser_embeddings,
@@ -211,7 +208,6 @@ class RGCN_DualAttn_FFNN(nn.Module):
 
         if self.if_pre_train:
             self.node_embeddings = nn.Embedding(num_embeddings=self.num_nodes, embedding_dim=768)
-            # self.node_embeddings = nn.Parameter(torch.FloatTensor(self.num_nodes, 768), requires_grad=True)
             self.pretrained_embeddings = self.data.load_pretrained_embeddings()
             self.EmbeddingMLP = nn.Linear(768, self.dim)
 
@@ -277,6 +273,8 @@ class RGCN_DualAttn_FFNN(nn.Module):
         pos_cosponser_masks, neg_cosponser_masks = pos_cosponser_batch == 0, neg_cosponser_batch == 0
 
         if self.if_pre_train:
+            if isinstance(self.node_embeddings, nn.Embedding):
+                self.node_embeddings = self.node_embeddings.weight
             x = self.EmbeddingMLP(self.node_embeddings)
         else:
             x = self.node_embeddings
@@ -301,15 +299,6 @@ class RGCN_DualAttn_FFNN(nn.Module):
                                                                   sponser_masks=pos_cosponser_masks,
                                                                   subject_masks=pos_subject_masks)  # (bsz, dim)
 
-        # pos_embeddings = torch.cat([pos_left_embeddings, pos_right_embeddings], dim=1)  # (bsz, 2 * dim)
-        # pos_embeddings = pos_embeddings.unsqueeze(0)  # (1, bsz, 2*dim)
-        #
-        # pos_embeddings, _ = self.FusionAttn(query=pos_embeddings,
-        #                                     key=pos_embeddings,
-        #                                     value=pos_embeddings)
-        # pos_embeddings = pos_embeddings.squeeze(0)  # (bsz, 2*dim)
-        # pos_embeddings = self.BillMLP(pos_embeddings)  # (bsz, dim)
-
         pos_embeddings = self.FusionLayer(bill_embeddings=pos_bill_embeddings,
                                           left_embeddings=pos_left_embeddings,
                                           right_embeddings=pos_right_embeddings)
@@ -321,14 +310,6 @@ class RGCN_DualAttn_FFNN(nn.Module):
                                                                   sponser_masks=neg_cosponser_masks,
                                                                   subject_masks=neg_subject_masks)
 
-        # neg_embeddings = torch.cat([neg_left_embeddings, neg_right_embeddings], dim=1)
-        # neg_embeddings = neg_embeddings.unsqueeze(0)
-        # neg_embeddings, _ = self.FusionAttn(query=neg_embeddings,
-        #                                     key=neg_embeddings,
-        #                                     value=neg_embeddings)
-        # neg_embeddings = neg_embeddings.squeeze(0)
-        # neg_embeddings = self.BillMLP(neg_embeddings)
-
         neg_embeddings = self.FusionLayer(bill_embeddings=neg_bill_embeddings,
                                           left_embeddings=neg_left_embeddings,
                                           right_embeddings=neg_right_embeddings)
@@ -339,53 +320,8 @@ class RGCN_DualAttn_FFNN(nn.Module):
         neg_scores = self.PredictorLayer(bill_embeddings=neg_embeddings,
                                          legislator_embeddings=legis_embeddings)  # (bsz)
 
-        # pos_scores = pos_scores.squeeze(-1)
-        # neg_scores = neg_scores.squeeze(-1)
-
         return self.cal_loss(pos_scores, neg_scores, node_embeddings)
 
-    # def forward(self, batch):
-    #     # TODO: Check inputs
-    #     # bsz, data_len = batch.shape
-    #     vid_index_batch, pos_index_batch, neg_index_batch = batch[:, 0], batch[:, 1], batch[:, 2]
-    #     subject_batch, cosponser_batch = batch[:, 3:33], batch[:, 33:]
-    #     subject_masks, cosponser_masks = subject_batch == 0, cosponser_batch == 0
-    #     if self.pretrained is not None:
-    #         x = self.LinearLayer(self.node_embeddings)
-    #     else:
-    #         x = self.node_embeddings
-    #
-    #     if self.pre_encoder == 'RGCN':
-    #         node_embeddings = self.RGCN(x=x)  # (num_nodes, dim)
-    #     elif self.pre_encoder == 'HGB':
-    #         node_embeddings = self.HGB(features_list=[x],
-    #                                    e_feat=self.graph.edata['etype'],
-    #                                    )
-    #     else:
-    #         raise NotImplementedError
-    #
-    #     pos_legis_embeddings = node_embeddings[pos_index_batch]
-    #     neg_legis_embeddings = node_embeddings[neg_index_batch]
-    #
-    #     left_embeddings, right_embeddings = self.DualAttn(node_embeddings=node_embeddings,
-    #                                                       bill_idx=vid_index_batch,
-    #                                                       sponser_idx=cosponser_batch,
-    #                                                       subject_idx=subject_batch,
-    #                                                       sponser_masks=cosponser_masks,
-    #                                                       subject_masks=subject_masks)
-    #
-    #     pos_scores = self.FFNN(left_embeddings=left_embeddings,
-    #                            right_embeddings=right_embeddings,
-    #                            legistor_embeddings=pos_legis_embeddings)
-    #
-    #     neg_scores = self.FFNN(left_embeddings=left_embeddings,
-    #                            right_embeddings=right_embeddings,
-    #                            legistor_embeddings=neg_legis_embeddings)
-    #
-    #     pos_scores = pos_scores.squeeze(-1)
-    #     neg_scores = neg_scores.squeeze(-1)
-    #
-    #     return self.cal_loss(pos_scores, neg_scores, node_embeddings)
 
     def cal_sim_loss(self, pairs, batch_size, node_embeddings):
         indices = np.random.permutation(len(pairs[0]))
