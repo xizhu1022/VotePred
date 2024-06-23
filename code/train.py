@@ -84,7 +84,6 @@ class Trainer(object):
 
         best_val_metric, best_val_epoch = 0., 0
         test_results = None
-        # best_val_result, best_test_result = {}, {}
         best_model = None
 
         for epoch in range(self.epochs):

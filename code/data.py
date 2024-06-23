@@ -14,47 +14,6 @@ from utils import adj_matrix_to_edge_index, matrix2dict
 from collections import defaultdict
 
 
-class MyDataset(Dataset):
-    def __init__(self,
-                 bills,
-                 node2index,
-                 bill2results,
-                 bill2cosponsers,
-                 bill2subjects_tfidf,
-                 num_nodes):
-        self.bills = bills  # candidate keys
-        self.node2index = node2index  # node -> index
-        self.bill2results = bill2results  # bill index -> voting results
-        self.bill2cosponsers = bill2cosponsers  # bill index -> cosponsers
-        self.bill2subjects_tfidf = bill2subjects_tfidf  # bill index -> subjects
-        self.num_nodes = num_nodes  # total number of nodes
-
-    def __len__(self):
-        return len(self.bills)
-
-    def __getitem__(self, index):
-        bill = self.bills[index]
-
-        cosponsers = self.bill2cosponsers[bill]
-        subjects = self.bill2subjects_tfidf[bill]
-
-        results = self.bill2results[bill]
-
-        candidate_pos = results["yeas"]
-        candidate_neg = results['nays'] + results['absents']
-
-        if len(candidate_pos) == 0:
-            pos_index = self.node2index['pos_legislator']  # legislator padding saying yeas
-        else:
-            pos_index = random.sample(candidate_pos, 1)[0]
-        if len(candidate_neg) == 0:
-            neg_index = self.node2index['neg_legislator']  # legislator padding saying nays
-        else:
-            neg_index = random.sample(candidate_neg, 1)[0]
-
-        return bill, pos_index, neg_index, subjects, cosponsers
-
-
 class MyMidDataset(Dataset):
     def __init__(self,
                  mids,
@@ -101,28 +60,6 @@ class MyMidDataset(Dataset):
         return mid, \
                pos_bill_index, pos_bill_cosponsers, pos_bill_subjects,\
                neg_bill_index, neg_bill_cosponsers, neg_bill_subjects
-
-def pad_collate(batch):
-    max_cosponser_len = float('-inf')
-    # max_subject_len = float('-inf')
-
-    for index, line in enumerate(batch):
-        subjects, cosponsers = line[3], line[4]
-        max_cosponser_len = max(len(cosponsers), max_cosponser_len)
-        # max_subject_len = max(len(line[4]), max_subject_len)
-
-    # [1] [1] [1] [Subjects: 30] [Consponsers: Unlimited]
-    new_batch = []
-    for vid_index, pos_index, neg_index, subjects, cosponsers in batch:
-        if len(subjects) == 0:
-            subjects = np.array([1])
-        if len(cosponsers) == 0:
-            cosponsers = np.array([2])
-        padded_subjects = np.pad(subjects, (0, 30 - len(subjects)), 'constant', constant_values=0)
-        padded_cosponsers = np.pad(cosponsers, (0, max_cosponser_len - len(cosponsers)), 'constant', constant_values=0)
-        new_line = [vid_index, pos_index, neg_index] + padded_subjects.tolist() + padded_cosponsers.tolist()
-        new_batch.append(new_line)
-    return torch.LongTensor(new_batch)
 
 
 def pad_collate_mids(batch):
@@ -366,12 +303,15 @@ class MyData(object):
             mids = self.cid_mids_dict[cid]
             self.train_mids += mids
         self.train_mids = list(set(self.train_mids))
+        self.train_mids.sort()
+        random.shuffle(self.train_mids)
         self.train_mids = [self.node2index[_] for _ in self.train_mids]
 
         # val / test data
         cid = cidstart + 4
         full_mids = [self.node2index[_] for _ in self.cid_mids_dict[cid]]
         mids = list(set(self.train_mids) & set(full_mids))  # avoid cold start
+        mids.sort()
         random.shuffle(mids)
         val_size = len(mids) // 2
         self.val_mids, self.test_mids = mids[:val_size], mids[val_size:]
@@ -428,36 +368,6 @@ class MyData(object):
             mids=self.test_mids,
             node2index=self.node2index,
             mid2results=self.test_mid2results,
-            bill2cosponsers=self.bill2cosponsers,
-            bill2subjects_tfidf=self.bill2subjects_tfidf,
-            num_nodes=self.num_nodes
-        )
-
-    def get_train_dataset(self):
-        return MyDataset(
-            bills=self.train_vids,
-            node2index=self.node2index,
-            bill2results=self.bill2results,
-            bill2cosponsers=self.bill2cosponsers,
-            bill2subjects_tfidf=self.bill2subjects_tfidf,
-            num_nodes=self.num_nodes
-        )
-
-    def get_val_dataset(self):
-        return MyDataset(
-            bills=self.val_vids,
-            node2index=self.node2index,
-            bill2results=self.bill2results,
-            bill2cosponsers=self.bill2cosponsers,
-            bill2subjects_tfidf=self.bill2subjects_tfidf,
-            num_nodes=self.num_nodes
-        )
-
-    def get_test_dataset(self):
-        return MyDataset(
-            bills=self.test_vids,
-            node2index=self.node2index,
-            bill2results=self.bill2results,
             bill2cosponsers=self.bill2cosponsers,
             bill2subjects_tfidf=self.bill2subjects_tfidf,
             num_nodes=self.num_nodes
