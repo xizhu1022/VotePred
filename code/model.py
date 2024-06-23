@@ -40,11 +40,87 @@ class FFNN(nn.Module):
 
     def forward(self, bill_embeddings, legistor_embeddings):
         x = torch.cat([bill_embeddings, legistor_embeddings], dim=1)
-
         x = self.fc1(x)
         x = self.act(x)
         x = self.fc2(x)
         return x
+
+
+class Fusion(nn.Module):
+    def __init__(self, dim, num_heads, fusion_type):
+        super(Fusion, self).__init__()
+        self.dim = dim
+        self.num_heads = num_heads
+        self.fusion_type = fusion_type
+
+        if self.fusion_type == 'mean':
+            pass
+
+        elif self.fusion_type == 'concat_mlp':
+            self.fc = nn.Linear(in_features=self.dim * 3, out_features=self.dim)
+
+        elif self.fusion_type == 'concat2_self_attn_mlp':
+            self.fusion_attn = nn.MultiheadAttention(embed_dim=self.dim * 2, num_heads=self.num_heads)
+            self.fc = nn.Linear(in_features=self.dim * 2, out_features=self.dim)
+
+        elif self.fusion_type == 'concat3_self_attn_mlp':
+            self.fusion_attn = nn.MultiheadAttention(embed_dim=self.dim * 3, num_heads=self.num_heads)
+            self.fc = nn.Linear(in_features=self.dim * 3, out_features=self.dim)
+
+        elif self.fusion_type == 'self_attn_mean_mlp':
+            self.left_attn = nn.MultiheadAttention(embed_dim=self.dim, num_heads=self.num_heads)
+            self.right_attn = nn.MultiheadAttention(embed_dim=self.dim, num_heads=self.num_heads)
+            self.bill_attn = nn.MultiheadAttention(embed_dim=self.dim, num_heads=self.num_heads)
+            self.fc = nn.Linear(in_features=self.dim * 3, out_features=self.dim)
+
+    def initialize(self):
+        if self.fusion_type in ['concat_mlp', 'self_attn_mean_mlp', 'concat2_self_attn_mlp', 'concat3_self_attn_mlp']:
+            nn.init.xavier_normal_(self.fc.weight)
+
+    def forward(self, bill_embeddings, left_embeddings, right_embeddings):
+        if self.fusion_type == 'mean':
+            x = torch.stack([left_embeddings, bill_embeddings, right_embeddings], dim=-1)
+            x = torch.mean(x, dim=-1, keepdim=False)
+            return x
+
+        elif self.fusion_type == 'concat_mlp':
+            x = torch.cat([left_embeddings, bill_embeddings, right_embeddings], dim=1)
+            x = self.fc(x)
+            return x
+
+        elif self.fusion_type == 'concat3_self_attn_mlp':
+            x = torch.cat([left_embeddings, bill_embeddings, right_embeddings], dim=1)
+            x = torch.unsqueeze(x, dim=0)
+            x, _ = self.fusion_attn(query=x, key=x, value=x)
+            x = torch.squeeze(x, dim=0)
+            x = self.fc(x)
+            return x
+
+        elif self.fusion_type == 'concat2_self_attn_mlp':
+            x = torch.cat([left_embeddings, right_embeddings], dim=1)
+            x = torch.unsqueeze(x, dim=0)
+            x, _ = self.fusion_attn(query=x, key=x, value=x)
+            x = torch.squeeze(x, dim=0)
+            x = self.fc(x)
+            return x
+
+        elif self.fusion_type == 'self_attn_mean_mlp':
+            left_embeddings = torch.unsqueeze(left_embeddings, dim=0)
+            bill_embeddings = torch.unsqueeze(bill_embeddings, dim=0)
+            right_embeddings = torch.unsqueeze(right_embeddings, dim=0)
+
+            left_embeddings, _ = self.left_attn(query=left_embeddings, key=left_embeddings, value=left_embeddings)
+            bill_embeddings, _ = self.bill_attn(query=bill_embeddings, key=bill_embeddings, value=bill_embeddings)
+            right_embeddings, _ = self.right_attn(query=right_embeddings, key=right_embeddings, value=right_embeddings)
+
+            left_embeddings = torch.squeeze(left_embeddings, dim=0)
+            bill_embeddings = torch.squeeze(bill_embeddings, dim=0)
+            right_embeddings = torch.squeeze(right_embeddings, dim=0)
+
+            x = torch.stack([left_embeddings, bill_embeddings, right_embeddings], dim=-1)
+            x = torch.mean(x, dim=-1, keepdim=False)
+            x = self.fc(x)
+            return x
 
 
 class Predictor(nn.Module):
@@ -84,14 +160,11 @@ class DualAttention(nn.Module):
                  dropout):
         super(DualAttention, self).__init__()
         self.dropout = dropout
-        self.n_head = num_heads
+        self.num_heads = num_heads
         self.d_model = d_model
 
-        self.left_attn = nn.MultiheadAttention(embed_dim=self.d_model, num_heads=self.n_head, dropout=self.dropout)
-        self.right_attn = nn.MultiheadAttention(embed_dim=self.d_model, num_heads=self.n_head, dropout=self.dropout)
-
-        # self.bill2cosponsers = data.bill2cosponsers
-        # self.bill2subjects = data.bill2subjects
+        self.left_attn = nn.MultiheadAttention(embed_dim=self.d_model, num_heads=self.num_heads, dropout=self.dropout)
+        self.right_attn = nn.MultiheadAttention(embed_dim=self.d_model, num_heads=self.num_heads, dropout=self.dropout)
 
     def forward(self, node_embeddings, query_idx, sponser_idx, subject_idx, sponser_masks, subject_masks):
         query_embeddings = node_embeddings[query_idx].unsqueeze(0)  # (1, bsz, dim)
@@ -137,13 +210,14 @@ class RGCN_DualAttn_FFNN(nn.Module):
                  lambda_2,
                  alpha,
                  pretrained,
+                 fusion_type,
                  data):
         super(RGCN_DualAttn_FFNN, self).__init__()
         self.dim = dim
         self.num_nodes = num_nodes
         self.num_relations = num_relations
         self.num_layers = num_layers
-        self.n_head = num_heads
+        self.num_heads = num_heads
         self.dropout_1 = dropout_1
         self.dropout_2 = dropout_2
         self.negative_slope = negative_slope
@@ -153,12 +227,13 @@ class RGCN_DualAttn_FFNN(nn.Module):
         self.alpha = alpha
 
         self.pretrained = pretrained
+        self.fusion_type = fusion_type
 
         if self.pretrained is not None:
             self.node_embeddings = nn.Parameter(torch.FloatTensor(self.num_nodes, 768))
             self.LinearLayer = nn.Linear(768, self.dim)
-            nn.init.normal_(self.LinearLayer.weight, mean=0, std=0.01)  # 正态分布初始化权重
-            nn.init.constant_(self.LinearLayer.bias, 0)  # 设置偏置为0
+            nn.init.normal_(self.LinearLayer.weight, mean=0, std=0.01)
+            nn.init.constant_(self.LinearLayer.bias, 0)
         else:
             self.node_embeddings = nn.Parameter(torch.FloatTensor(self.num_nodes, self.dim))
 
@@ -170,7 +245,7 @@ class RGCN_DualAttn_FFNN(nn.Module):
                 in_dims=[self.dim],
                 num_hidden=self.dim,
                 num_layers=self.num_layers,
-                heads=[self.n_head] * self.num_layers,
+                heads=[self.num_heads] * self.num_layers,
                 activation=F.relu,
                 feat_drop=self.dropout_1,
                 attn_drop=self.dropout_1,
@@ -178,28 +253,33 @@ class RGCN_DualAttn_FFNN(nn.Module):
                 residual=False,
                 alpha=self.alpha)
 
-        elif self.pre_encoder == 'RGCN':
-            self.RGCN = RGCNModel(
-                in_channels=self.dim,
-                out_channels=self.dim,
-                num_relations=self.num_relations,
-                edge_index=self.edge_index,
-                edge_type=self.edge_type)
+        # elif self.pre_encoder == 'RGCN':  # TODO
+            # self.RGCN = RGCNModel(
+            #     in_channels=self.dim,
+            #     out_channels=self.dim,
+            #     num_relations=self.num_relations,
+            #     edge_index=self.edge_index,
+            #     edge_type=self.edge_type)
 
         self.DualAttn = DualAttention(d_model=self.dim,
-                                      num_heads=self.n_head,
+                                      num_heads=self.num_heads,
                                       dropout=self.dropout_2)
 
-        self.FusionAttn = nn.MultiheadAttention(embed_dim=self.dim * 2,
-                                                num_heads=self.n_head
-                                                )
-        self.BillMLP = nn.Linear(in_features=self.dim * 2, out_features=self.dim)
+        # self.FusionAttn = nn.MultiheadAttention(embed_dim=self.dim * 2,
+        #                                         num_heads=self.n_head
+        #                                         )
+        # self.BillMLP = nn.Linear(in_features=self.dim * 2, out_features=self.dim)
+        self.fusion_type = fusion_type
+        self.FusionLayer = Fusion(dim=self.dim,
+                                  num_heads=self.num_heads,
+                                  fusion_type=self.fusion_type)
+
         self.PredictorLayer = Predictor()
 
         self.initialize()
 
     def initialize(self):
-        nn.init.xavier_normal_(self.BillMLP.weight)
+        # nn.init.xavier_normal_(self.BillMLP.weight)
         if self.pretrained is not None:
             self.node_embeddings.data.copy_(self.pretrained)
         else:
@@ -230,14 +310,13 @@ class RGCN_DualAttn_FFNN(nn.Module):
         elif self.pre_encoder == 'HGB':
             node_embeddings = self.HGB(features_list=[x],
                                        e_feat=graph.edata['etype'],
-                                       g=graph
-                                       )
+                                       g=graph)
         else:
             raise NotImplementedError
 
         legis_embeddings = node_embeddings[mid_batch]  # (bsz, dim)
-        # pos_bill_embeddings = node_embeddings[pos_bill_index_batch]
-        # neg_bill_embeddings = node_embeddings[neg_bill_index_batch]
+        pos_bill_embeddings = node_embeddings[pos_bill_index_batch]
+        neg_bill_embeddings = node_embeddings[neg_bill_index_batch]
 
         pos_left_embeddings, pos_right_embeddings = self.DualAttn(node_embeddings=node_embeddings,
                                                                   query_idx=mid_batch,
@@ -246,14 +325,18 @@ class RGCN_DualAttn_FFNN(nn.Module):
                                                                   sponser_masks=pos_cosponser_masks,
                                                                   subject_masks=pos_subject_masks)  # (bsz, dim)
 
-        pos_embeddings = torch.cat([pos_left_embeddings, pos_right_embeddings], dim=1)  # (bsz, 2 * dim)
-        pos_embeddings = pos_embeddings.unsqueeze(0)  # (1, bsz, 2*dim)
+        # pos_embeddings = torch.cat([pos_left_embeddings, pos_right_embeddings], dim=1)  # (bsz, 2 * dim)
+        # pos_embeddings = pos_embeddings.unsqueeze(0)  # (1, bsz, 2*dim)
+        #
+        # pos_embeddings, _ = self.FusionAttn(query=pos_embeddings,
+        #                                     key=pos_embeddings,
+        #                                     value=pos_embeddings)
+        # pos_embeddings = pos_embeddings.squeeze(0)  # (bsz, 2*dim)
+        # pos_embeddings = self.BillMLP(pos_embeddings)  # (bsz, dim)
 
-        pos_embeddings, _ = self.FusionAttn(query=pos_embeddings,
-                                            key=pos_embeddings,
-                                            value=pos_embeddings)
-        pos_embeddings = pos_embeddings.squeeze(0)  # (bsz, 2*dim)
-        pos_embeddings = self.BillMLP(pos_embeddings)  # (bsz, dim)
+        pos_embeddings = self.FusionLayer(bill_embeddings=pos_bill_embeddings,
+                                          left_embeddings=pos_left_embeddings,
+                                          right_embeddings=pos_right_embeddings)
 
         neg_left_embeddings, neg_right_embeddings = self.DualAttn(node_embeddings=node_embeddings,
                                                                   query_idx=mid_batch,
@@ -262,21 +345,17 @@ class RGCN_DualAttn_FFNN(nn.Module):
                                                                   sponser_masks=neg_cosponser_masks,
                                                                   subject_masks=neg_subject_masks)
 
-        neg_embeddings = torch.cat([neg_left_embeddings, neg_right_embeddings], dim=1)
-        neg_embeddings = neg_embeddings.unsqueeze(0)
-        neg_embeddings, _ = self.FusionAttn(query=neg_embeddings,
-                                            key=neg_embeddings,
-                                            value=neg_embeddings)
-        neg_embeddings = neg_embeddings.squeeze(0)
-        neg_embeddings = self.BillMLP(neg_embeddings)
+        # neg_embeddings = torch.cat([neg_left_embeddings, neg_right_embeddings], dim=1)
+        # neg_embeddings = neg_embeddings.unsqueeze(0)
+        # neg_embeddings, _ = self.FusionAttn(query=neg_embeddings,
+        #                                     key=neg_embeddings,
+        #                                     value=neg_embeddings)
+        # neg_embeddings = neg_embeddings.squeeze(0)
+        # neg_embeddings = self.BillMLP(neg_embeddings)
 
-        # pos_scores = self.FFNN(left_embeddings=pos_left_embeddings,
-        #                        right_embeddings=pos_right_embeddings,
-        #                        legistor_embeddings=pos_bill_embeddings)
-        #
-        # neg_scores = self.FFNN(left_embeddings=neg_left_embeddings,
-        #                        right_embeddings=neg_right_embeddings,
-        #                        legistor_embeddings=neg_bill_embeddings)
+        neg_embeddings = self.FusionLayer(bill_embeddings=neg_bill_embeddings,
+                                          left_embeddings=neg_left_embeddings,
+                                          right_embeddings=neg_right_embeddings)
 
         pos_scores = self.PredictorLayer(bill_embeddings=pos_embeddings,
                                          legislator_embeddings=legis_embeddings)  # (bsz)

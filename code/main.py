@@ -26,6 +26,8 @@ if __name__ == '__main__':
     parser.add_argument('--lambda_1', type=float, default=0.05, help='lambda_1')
     parser.add_argument('--lambda_2', type=float, default=0.05, help='lambda_2')
     parser.add_argument('--alpha', type=float, default=0.05, help='alpha')
+    parser.add_argument('--fusion_type', type=str, default= 'concat2_self_attn_mlp', help='fusion type')
+
     # train
     parser.add_argument('--gpu', type=int, default=1, help='gpu_id')
     parser.add_argument('--lr', type=float, default=2e-4, help='learning rate')  # 1e-4
@@ -59,6 +61,7 @@ if __name__ == '__main__':
             lambda_2=args.lambda_2,
             alpha=args.alpha,
             pretrained=myData.pretrained_embeddings,
+            fusion_type=args.fusion_type,
             data=myData
         )
         model = model.to(args.device)
