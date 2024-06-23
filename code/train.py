@@ -19,7 +19,8 @@ class Trainer(object):
         self.model = model
         self.data = data
         self.device = args.device
-        self.args = args
+        self.this_time = args.this_time
+        self.model_name = args.model_name
 
         self.epochs = args.epochs
         self.min_epochs = args.min_epochs
@@ -30,11 +31,18 @@ class Trainer(object):
         self.patience = args.patience
 
         self.cidstart_list = self.data.cidstart_list
+        self.metric = args.metric
+        self.ascend = False
+        self.get_metric_ascend()
         self.optimizer = self.get_optimizer()
 
     def get_optimizer(self):
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
         return optimizer
+
+    def get_metric_ascend(self):
+        if self.metric in ['f1', 'auc', 'pre', 'recall', 'auc']:
+            self.ascend = True
 
     def multiple_runs(self):
         overall_start = time()
@@ -82,7 +90,8 @@ class Trainer(object):
         test_loader = DataLoader(dataset=test_dataset, batch_size=self.test_batch_size, shuffle=False,
                                  collate_fn=pad_collate_mids, pin_memory=True)
 
-        best_val_metric, best_val_epoch = 0., 0
+        best_val_metric = 0 if self.ascend else np.inf
+        best_val_epoch = 0
         test_results = None
         best_model = None
 
@@ -103,6 +112,7 @@ class Trainer(object):
                             )
             # validate
             val_loss, val_results = self.evaluate(val_loader, graph)
+            val_results['loss'] = val_loss
             if (epoch + 1) % 5 == 0:
                 logger.info('[Valid] epoch: %d, loss: %.4f, acc: %.4f, f1: %.4f, recall: %.4f, '
                             'pre: %.4f, auc: %.4f' % (epoch,
@@ -114,12 +124,21 @@ class Trainer(object):
                                                       val_results['auc'])
                             )
 
-            val_metric = val_results['f1']  # val_loss
+            val_metric = val_results[self.metric]  # val_loss
+
             if epoch > self.min_epochs:
-                if val_metric > best_val_metric:
+                if (val_metric > best_val_metric and self.ascend) or (val_metric < best_val_metric and not self.ascend):
+                    # update
+                    logger.info('[Valid] epoch: %d, %s: %.4f -> %.4f' % (
+                        epoch,
+                        self.metric,
+                        best_val_metric,
+                        val_metric
+                    ))
                     best_val_metric = val_metric
                     best_val_epoch = epoch
                     best_val_result = val_results
+
                     # test
                     self.save_model(cid, self.model)
                     test_loss, test_results = self.evaluate(test_loader, graph)
@@ -136,9 +155,6 @@ class Trainer(object):
                 if epoch - best_val_epoch > self.patience:
                     logger.info('Stop at epoch %d' % (epoch + 1))
                     break
-
-        # test
-        # test_loss, test_results = self.evaluate(test_loader, graph)
 
         return test_results
 
@@ -194,6 +210,6 @@ class Trainer(object):
         return loss, eval_results
 
     def save_model(self, cid, model):
-        path = os.path.join(self.args.model_path, self.args.this_time, str(cid))
+        path = os.path.join(self.model_path, self.this_time, str(cid))
         create_directory_if_not_exists(path)
-        torch.save(model.state_dict(), os.path.join(path, '{}.pth'.format(self.args.model_name)))
+        torch.save(model.state_dict(), os.path.join(path, '{}.pth'.format(self.model_name)))

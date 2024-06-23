@@ -11,11 +11,16 @@ from utils import seed_everything
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Set args', add_help=False)
+
     # paths
     parser.add_argument('--model_name', type=str, default='RGCN_DualAttn_FFNN', help='model_name')
     parser.add_argument('--data_path', type=str, default='../data_0609', help='data path')
     parser.add_argument('--model_path', type=str, default='../saves', help='model path')
     parser.add_argument('--log_path', type=str, default='../log', help='model path')
+
+    # data
+    parser.add_argument('--if_cold_start', action='store_true', help='if_cold_start')
+
     # model
     parser.add_argument('--embedding_size', type=int, default=64, help='embedding_size')
     parser.add_argument('--num_heads', type=int, default=1, help='num_heads')
@@ -26,7 +31,7 @@ if __name__ == '__main__':
     parser.add_argument('--lambda_1', type=float, default=0.05, help='lambda_1')
     parser.add_argument('--lambda_2', type=float, default=0.05, help='lambda_2')
     parser.add_argument('--alpha', type=float, default=0.05, help='alpha')
-    parser.add_argument('--fusion_type', type=str, default= 'concat2_self_attn_mlp', help='fusion type')
+    parser.add_argument('--fusion_type', type=str, default='concat2_self_attn_mlp', help='fusion type')
 
     # train
     parser.add_argument('--gpu', type=int, default=1, help='gpu_id')
@@ -36,6 +41,8 @@ if __name__ == '__main__':
     parser.add_argument('--patience', type=int, default=20, help='patience')
     parser.add_argument('--train_batch_size', type=int, default=64, help='train_batch_size')
     parser.add_argument('--test_batch_size', type=int, default=64, help='test_batch_size')
+    parser.add_argument('--if_pre_train', action='store_true', help='if_pre_train')
+    parser.add_argument('--metric', type=str, default='loss', help='metric for validation')
 
     args = parser.parse_args()
 
@@ -45,7 +52,8 @@ if __name__ == '__main__':
     seed_everything()
 
     # Dataset and Model
-    myData = MyData(args.data_path)
+    myData = MyData(data_path=args.data_path,
+                    if_cold_start=args.if_cold_start)
 
     if args.model_name == 'RGCN_DualAttn_FFNN':
         model = RGCN_DualAttn_FFNN(
@@ -60,7 +68,7 @@ if __name__ == '__main__':
             lambda_1=args.lambda_1,
             lambda_2=args.lambda_2,
             alpha=args.alpha,
-            pretrained=myData.pretrained_embeddings,
+            if_pre_train=args.if_pre_train,
             fusion_type=args.fusion_type,
             data=myData
         )

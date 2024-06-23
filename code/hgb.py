@@ -56,6 +56,8 @@ class myGAT(nn.Module):
     def forward(self, features_list, e_feat, g):
         h = []
         for fc, feature in zip(self.fc_list, features_list):
+            if isinstance(feature, nn.Embedding):
+                feature = feature.weight
             h.append(fc(feature))
         h = torch.cat(h, 0)
         res_attn = None

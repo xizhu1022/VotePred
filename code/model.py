@@ -71,7 +71,7 @@ class Fusion(nn.Module):
             self.left_attn = nn.MultiheadAttention(embed_dim=self.dim, num_heads=self.num_heads)
             self.right_attn = nn.MultiheadAttention(embed_dim=self.dim, num_heads=self.num_heads)
             self.bill_attn = nn.MultiheadAttention(embed_dim=self.dim, num_heads=self.num_heads)
-            self.fc = nn.Linear(in_features=self.dim * 3, out_features=self.dim)
+            self.fc = nn.Linear(in_features=self.dim, out_features=self.dim)
 
     def initialize(self):
         if self.fusion_type in ['concat_mlp', 'self_attn_mean_mlp', 'concat2_self_attn_mlp', 'concat3_self_attn_mlp']:
@@ -209,7 +209,7 @@ class RGCN_DualAttn_FFNN(nn.Module):
                  lambda_1,
                  lambda_2,
                  alpha,
-                 pretrained,
+                 if_pre_train,
                  fusion_type,
                  data):
         super(RGCN_DualAttn_FFNN, self).__init__()
@@ -226,16 +226,17 @@ class RGCN_DualAttn_FFNN(nn.Module):
         self.lambda_2 = lambda_2
         self.alpha = alpha
 
-        self.pretrained = pretrained
+        self.if_pre_train = if_pre_train
         self.fusion_type = fusion_type
 
-        if self.pretrained is not None:
-            self.node_embeddings = nn.Parameter(torch.FloatTensor(self.num_nodes, 768))
-            self.LinearLayer = nn.Linear(768, self.dim)
-            nn.init.normal_(self.LinearLayer.weight, mean=0, std=0.01)
-            nn.init.constant_(self.LinearLayer.bias, 0)
+        if self.if_pre_train:
+            self.node_embeddings = nn.Embedding(num_embeddings=self.num_nodes, embedding_dim=768)
+            # self.node_embeddings = nn.Parameter(torch.FloatTensor(self.num_nodes, 768), requires_grad=True)
+            self.pretrained_embeddings = self.data.load_pretrained_embeddings()
+            self.EmbeddingMLP = nn.Linear(768, self.dim)
+
         else:
-            self.node_embeddings = nn.Parameter(torch.FloatTensor(self.num_nodes, self.dim))
+            self.node_embeddings = nn.Embedding(num_embeddings=self.num_nodes, embedding_dim=self.dim)
 
         self.pre_encoder = 'HGB'
         if self.pre_encoder == 'HGB':
@@ -265,11 +266,6 @@ class RGCN_DualAttn_FFNN(nn.Module):
                                       num_heads=self.num_heads,
                                       dropout=self.dropout_2)
 
-        # self.FusionAttn = nn.MultiheadAttention(embed_dim=self.dim * 2,
-        #                                         num_heads=self.n_head
-        #                                         )
-        # self.BillMLP = nn.Linear(in_features=self.dim * 2, out_features=self.dim)
-        self.fusion_type = fusion_type
         self.FusionLayer = Fusion(dim=self.dim,
                                   num_heads=self.num_heads,
                                   fusion_type=self.fusion_type)
@@ -279,14 +275,14 @@ class RGCN_DualAttn_FFNN(nn.Module):
         self.initialize()
 
     def initialize(self):
-        # nn.init.xavier_normal_(self.BillMLP.weight)
-        if self.pretrained is not None:
-            self.node_embeddings.data.copy_(self.pretrained)
+        if self.if_pre_train:
+            self.node_embeddings.weight.data.copy_(self.pretrained_embeddings)
+            nn.init.normal_(self.EmbeddingMLP.weight, mean=0, std=0.01)
+            nn.init.constant_(self.EmbeddingMLP.bias, 0)
         else:
-            nn.init.xavier_normal_(self.node_embeddings)
+            nn.init.xavier_normal_(self.node_embeddings.weight.data)
 
     def forward(self, batch, graph):
-        # TODO: Check inputs
         mid_batch, pos_bill_index_batch, neg_bill_index_batch, max_pos_cosponser_len_batch, max_neg_cosponser_len_batch \
             = batch[:, 0], batch[:, 1], batch[:, 2], batch[:, 3], batch[:, 4]
         pos_subject_batch, neg_subject_batch = batch[:, 5: 35], batch[:, 35: 65]
@@ -300,8 +296,8 @@ class RGCN_DualAttn_FFNN(nn.Module):
                                                    batch[:, 65 + max_pos_cosponser_len:]
         pos_cosponser_masks, neg_cosponser_masks = pos_cosponser_batch == 0, neg_cosponser_batch == 0
 
-        if self.pretrained is not None:
-            x = self.LinearLayer(self.node_embeddings)
+        if self.if_pre_train:
+            x = self.EmbeddingMLP(self.node_embeddings)
         else:
             x = self.node_embeddings
 
