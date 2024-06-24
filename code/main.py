@@ -31,6 +31,7 @@ if __name__ == '__main__':
     parser.add_argument('--lambda_1', type=float, default=0.05, help='lambda_1')
     parser.add_argument('--lambda_2', type=float, default=0.05, help='lambda_2')
     parser.add_argument('--alpha', type=float, default=0.05, help='alpha')
+    parser.add_argument('--encoder_type', type=str, default='hgb', help='encoder type')
     parser.add_argument('--fusion_type', type=str, default='concat2_self_attn_mlp', help='fusion type')
 
     # train
@@ -70,6 +71,7 @@ if __name__ == '__main__':
             alpha=args.alpha,
             if_pre_train=args.if_pre_train,
             fusion_type=args.fusion_type,
+            encoder_type=args.encoder_type,
             data=myData
         )
         model = model.to(args.device)
