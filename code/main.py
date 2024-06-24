@@ -32,7 +32,7 @@ if __name__ == '__main__':
     parser.add_argument('--lambda_2', type=float, default=0.05, help='lambda_2')
     parser.add_argument('--alpha', type=float, default=0.05, help='alpha')
     parser.add_argument('--encoder_type', type=str, default='hgb', help='encoder type')
-    parser.add_argument('--fusion_type', type=str, default='concat2_self_attn_mlp', help='fusion type')
+    parser.add_argument('--fusion_type', type=str, default='concat3_self_attn_mlp', help='fusion type')
 
     # train
     parser.add_argument('--gpu', type=int, default=1, help='gpu_id')
@@ -91,5 +91,5 @@ if __name__ == '__main__':
     trainer = Trainer(model=model,
                       data=myData,
                       args=args)
-    # trainer.multiple_runs()
-    trainer.load_model(102, '../saves/2024-06-25_03_17_15/102/RGCN_DualAttn_FFNN.pth')
+    trainer.multiple_runs()
+    # trainer.load_model(102, '../saves/2024-06-25_03_17_15/102/RGCN_DualAttn_FFNN.pth')

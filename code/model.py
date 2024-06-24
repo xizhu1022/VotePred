@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import RGCNConv
+# from torch_geometric.nn import RGCNConv
 
 from hgb import myGAT
 
@@ -65,12 +65,16 @@ class RGCN_DualAttn_FFNN(nn.Module):
                 residual=False,
                 alpha=self.alpha)
 
-        elif self.encoder_type == 'rgcn':
-            self.Encoder = RGCN(
-                in_channels=self.dim,
-                out_channels=self.dim,
-                num_relations=self.num_relations,
-                num_layers=self.num_layers)
+        # elif self.encoder_type == 'rgcn':
+        #     self.Encoder = RGCN(
+        #         in_channels=self.dim,
+        #         out_channels=self.dim,
+        #         num_relations=self.num_relations,
+        #         num_layers=self.num_layers)
+
+        elif self.encoder_type == 'none':
+            pass
+
         else:
             raise NotImplementedError
 
@@ -115,14 +119,18 @@ class RGCN_DualAttn_FFNN(nn.Module):
         else:
             x = self.node_embeddings
 
-        if self.encoder_type == 'rgcn':
-            node_embeddings = self.Encoder(x=x,
-                                           edge_indexes=graph.edges(),
-                                           edge_types=graph.edata['etype'])
-        elif self.encoder_type == 'hgb':
+        if self.encoder_type == 'hgb':
             node_embeddings = self.Encoder(features_list=[x],
                                            e_feat=graph.edata['etype'],
                                            g=graph)
+
+        # elif self.encoder_type == 'rgcn':
+        #     node_embeddings = self.Encoder(x=x,
+        #                                    edge_indexes=graph.edges(),
+        #                                    edge_types=graph.edata['etype'])
+
+        elif self.encoder_type == 'none':
+            node_embeddings = x
         else:
             raise NotImplementedError
 
@@ -302,6 +310,14 @@ class Fusion(nn.Module):
             self.bill_attn = nn.MultiheadAttention(embed_dim=self.dim, num_heads=self.num_heads)
             self.fc = nn.Linear(in_features=self.dim, out_features=self.dim)
 
+        elif self.fusion_type == 'ablation_wo_both':
+            self.fusion_attn = nn.MultiheadAttention(embed_dim=self.dim, num_heads=self.num_heads)
+            self.fc = nn.Linear(in_features=self.dim, out_features=self.dim)
+
+        elif self.fusion_type in ['ablation_only_sponsers', 'ablation_only_subjects']:
+            self.fusion_attn = nn.MultiheadAttention(embed_dim=self.dim * 2, num_heads=self.num_heads)
+            self.fc = nn.Linear(in_features=self.dim * 2, out_features=self.dim)
+
     def initialize(self):
         if self.fusion_type in ['concat_mlp', 'self_attn_mean_mlp', 'concat2_self_attn_mlp', 'concat3_self_attn_mlp']:
             nn.init.xavier_normal_(self.fc.weight)
@@ -350,6 +366,29 @@ class Fusion(nn.Module):
             x = torch.mean(x, dim=-1, keepdim=False)
             x = self.fc(x)
             return x
+
+        elif self.fusion_type == 'ablation_wo_both':
+            x = bill_embeddings
+            x = torch.unsqueeze(x, dim=0)
+            x, _ = self.fusion_attn(query=x, key=x, value=x)
+            x = torch.squeeze(x, dim=0)
+            x = self.fc(x)
+            return x
+
+        elif self.fusion_type in ['ablation_only_sponsers', 'ablation_only_subjects']:
+            if self.fusion_type == 'ablation_only_sponsers':
+                x = torch.cat([left_embeddings, bill_embeddings], dim=1)
+            elif self.fusion_type == 'ablation_only_subjects':
+                x = torch.cat([bill_embeddings, right_embeddings], dim=1)
+            else:
+                raise NotImplementedError
+            x = torch.unsqueeze(x, dim=0)
+            x, _ = self.fusion_attn(query=x, key=x, value=x)
+            x = torch.squeeze(x, dim=0)
+            x = self.fc(x)
+            return x
+
+
 
 
 class Predictor(nn.Module):
