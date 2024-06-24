@@ -41,6 +41,13 @@ class Trainer(object):
         if self.metric in ['f1', 'auc', 'pre', 'recall', 'auc']:
             self.ascend = True
 
+    def load_model(self, cid, load_path):
+        graph = self.data.build_graph(cid_latest=cid + 4)
+        graph = graph.to(self.device)
+
+        loaded_model = torch.load(load_path)
+        self.model.load_state_dict(loaded_model)
+
     def multiple_runs(self):
         overall_start = time()
         all_run_results = ddict(list)

@@ -91,4 +91,5 @@ if __name__ == '__main__':
     trainer = Trainer(model=model,
                       data=myData,
                       args=args)
-    trainer.multiple_runs()
+    # trainer.multiple_runs()
+    trainer.load_model(102, '../saves/2024-06-25_03_17_15/102/RGCN_DualAttn_FFNN.pth')
