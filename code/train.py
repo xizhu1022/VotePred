@@ -99,6 +99,8 @@ class Trainer(object):
         test_results = None
         best_model = None
 
+        encoder_attn_flag = True  # todo: remove after exps
+
         for epoch in range(self.epochs):
             # train
             epoch_start = time()
@@ -146,6 +148,11 @@ class Trainer(object):
                     # test
                     self.save_model(cid, self.model)
                     test_loss, test_results = self.evaluate(test_loader, graph)
+
+                    if encoder_attn_flag:
+                        weights = self.model.encoder_weights
+                        self.save_weights(cid, weights)
+
                     logger.info('[Test] epoch: %d, loss: %.4f, acc: %.4f, f1: %.4f, recall: %.4f, '
                                 'pre: %.4f, auc: %.4f' % (epoch,
                                                           test_loss,
@@ -216,4 +223,16 @@ class Trainer(object):
     def save_model(self, cid, model):
         path = os.path.join(self.model_path, self.this_time, str(cid))
         create_directory_if_not_exists(path)
-        torch.save(model.state_dict(), os.path.join(path, '{}.pth'.format(self.model_name)))
+        torch.save(model.state_dict(), os.path.join(path, '{}_model.pth'.format(self.model_name)))
+
+    def save_weights(self, cid, weights):
+        path = os.path.join(self.model_path, self.this_time, str(cid))
+        saves = {
+            'edge_source_nodes': self.data.edge_indexes[0].cpu().tolist(),
+            'edge_target_nodes': self.data.edge_indexes[1].cpu().tolist(),
+            'edge_types': self.data.edge_types.cpu().tolist(),
+            'weights': weights.detach().cpu().tolist()
+        }
+
+        create_directory_if_not_exists(path)
+        torch.save(saves, os.path.join(path, '{}_encoder_weights.pth'.format(self.model_name)))

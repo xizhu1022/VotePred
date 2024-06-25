@@ -120,9 +120,9 @@ class RGCN_DualAttn_FFNN(nn.Module):
             x = self.node_embeddings
 
         if self.encoder_type == 'hgb':
-            node_embeddings = self.Encoder(features_list=[x],
-                                           e_feat=graph.edata['etype'],
-                                           g=graph)
+            node_embeddings, self.encoder_weights = self.Encoder(features_list=[x],
+                                                     e_feat=graph.edata['etype'],
+                                                     g=graph)
 
         elif self.encoder_type == 'rgcn':
             node_embeddings = self.Encoder(x=x,
