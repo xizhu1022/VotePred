@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-# from torch_geometric.nn import RGCNConv
+from torch_geometric.nn import RGCNConv
 
 from hgb import myGAT
 
@@ -65,12 +65,12 @@ class RGCN_DualAttn_FFNN(nn.Module):
                 residual=False,
                 alpha=self.alpha)
 
-        # elif self.encoder_type == 'rgcn':
-        #     self.Encoder = RGCN(
-        #         in_channels=self.dim,
-        #         out_channels=self.dim,
-        #         num_relations=self.num_relations,
-        #         num_layers=self.num_layers)
+        elif self.encoder_type == 'rgcn':
+            self.Encoder = RGCN(
+                in_channels=self.dim,
+                out_channels=self.dim,
+                num_relations=self.num_relations,
+                num_layers=self.num_layers)
 
         elif self.encoder_type == 'none':
             pass
@@ -124,10 +124,10 @@ class RGCN_DualAttn_FFNN(nn.Module):
                                            e_feat=graph.edata['etype'],
                                            g=graph)
 
-        # elif self.encoder_type == 'rgcn':
-        #     node_embeddings = self.Encoder(x=x,
-        #                                    edge_indexes=graph.edges(),
-        #                                    edge_types=graph.edata['etype'])
+        elif self.encoder_type == 'rgcn':
+            node_embeddings = self.Encoder(x=x,
+                                           edge_indexes=graph.edges(),
+                                           edge_types=graph.edata['etype'])
 
         elif self.encoder_type == 'none':
             node_embeddings = x
@@ -389,8 +389,6 @@ class Fusion(nn.Module):
             return x
 
 
-
-
 class Predictor(nn.Module):
     def __init__(self):
         super(Predictor, self).__init__()
@@ -473,7 +471,6 @@ class DualAttention(nn.Module):
         right_weight = right_weights.squeeze(1)
 
         return left_embeddings, right_embeddings
-
 
 # class HyperConv(nn.Module):
 #     def __init__(self, in_channels, out_channels, G, bias, residual):
