@@ -177,6 +177,7 @@ class MyData(object):
             for vote, vote_list in results.items():
                 this_mid_dict[vote] = [self.node2index[_] for _ in vote_list]
             self.mid2results[mid] = this_mid_dict
+
         # legislator - congress - vote - vote_list (bills)
         mid_cid_results_dict = np.load(os.path.join(self.data_path, 'mid_cid_results_dict.npy'),
                                        allow_pickle=True).item()
