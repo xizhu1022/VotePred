@@ -136,6 +136,8 @@ class RGCN_DualAttn_FFNN(nn.Module):
         else:
             raise NotImplementedError
 
+        self.encoder_embeddings = node_embeddings
+
         legis_embeddings = node_embeddings[mid_batch]  # (bsz, dim)
         pos_bill_embeddings = node_embeddings[pos_bill_index_batch]
         neg_bill_embeddings = node_embeddings[neg_bill_index_batch]
@@ -202,7 +204,7 @@ class RGCN_DualAttn_FFNN(nn.Module):
     def cal_priority_loss(self, batch_size, node_embeddings):
         legislators, pos_bills, neg_bills = [], [], []
         while True:
-            legislator = random.sample(self.data.train_mids, k=1)[0]  # np.random.choice(self.data.train_mids)
+            legislator = random.sample(self.data.train_mids, k=1)[0]
             candidate_pos_bills = self.data.train_mid2results[legislator]['proposals']
             candidate_neg_bills = self.data.train_mid2results[legislator]['yeas']
 
@@ -214,7 +216,7 @@ class RGCN_DualAttn_FFNN(nn.Module):
             if len(candidate_neg_bills) == 0:
                 continue
             else:
-                neg_bill = random.sample(candidate_neg_bills, k=1)[0]  # np.random.choice(candidate_neg_bills)
+                neg_bill = random.sample(candidate_neg_bills, k=1)[0]
 
             legislators.append(legislator)
             pos_bills.append(pos_bill)

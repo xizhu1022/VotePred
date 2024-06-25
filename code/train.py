@@ -100,6 +100,7 @@ class Trainer(object):
         best_model = None
 
         encoder_attn_flag = True  # todo: remove after exps
+        encoder_embeddings_flag = True
 
         for epoch in range(self.epochs):
             # train
@@ -152,6 +153,10 @@ class Trainer(object):
                     if encoder_attn_flag:
                         weights = self.model.encoder_weights
                         self.save_weights(cid, weights)
+
+                    if encoder_embeddings_flag:
+                        embeddings = self.model.encoder_embeddings.detach().cpu().numpy()
+                        self.save_embeddings(cid, embeddings)
 
                     logger.info('[Test] epoch: %d, loss: %.4f, acc: %.4f, f1: %.4f, recall: %.4f, '
                                 'pre: %.4f, auc: %.4f' % (epoch,
@@ -224,6 +229,11 @@ class Trainer(object):
         path = os.path.join(self.model_path, self.this_time, str(cid))
         create_directory_if_not_exists(path)
         torch.save(model.state_dict(), os.path.join(path, '{}_model.pth'.format(self.model_name)))
+
+    def save_embeddings(self, cid, embeddings):
+        path = os.path.join(self.model_path, self.this_time, str(cid))
+        create_directory_if_not_exists(path)
+        torch.save(embeddings, os.path.join(path, '{}_embeddings.pth'.format(self.model_name)))
 
     def save_weights(self, cid, weights):
         path = os.path.join(self.model_path, self.this_time, str(cid))
