@@ -150,7 +150,7 @@ class Trainer(object):
                     self.save_model(cid, self.model)
                     test_loss, test_results = self.evaluate(test_loader, graph)
 
-                    if encoder_attn_flag:
+                    if encoder_attn_flag and self.model.encoder_type == 'hgb':
                         weights = self.model.encoder_weights
                         self.save_weights(cid, weights)
 

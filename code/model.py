@@ -80,6 +80,8 @@ class RGCN_DualAttn_FFNN(nn.Module):
         else:
             raise NotImplementedError
 
+        self.NormLayer = nn.LayerNorm(self.dim)
+
         self.DualAttn = DualAttention(d_model=self.dim,
                                       num_heads=self.num_heads,
                                       dropout=self.dropout_2)
@@ -125,6 +127,7 @@ class RGCN_DualAttn_FFNN(nn.Module):
             node_embeddings, self.encoder_weights = self.Encoder(features_list=[x],
                                                                  e_feat=graph.edata['etype'],
                                                                  g=graph)
+            node_embeddings = self.NormLayer(node_embeddings)
 
         elif self.encoder_type == 'rgcn':
             node_embeddings = self.Encoder(x=x,
@@ -263,6 +266,7 @@ class RGCN_DualAttn_FFNN(nn.Module):
 
         predictions = torch.sigmoid(predictions)
         predicted_labels = torch.round(predictions)
+
         targets = targets.detach().cpu().numpy()
         predictions = predictions.detach().cpu().numpy()
         predicted_labels = predicted_labels.detach().cpu().numpy()
@@ -317,7 +321,7 @@ class Fusion(nn.Module):
             self.fc = nn.Linear(in_features=self.dim, out_features=self.dim)
 
         elif self.fusion_type == 'ablation_wo_both':
-            self.fusion_attn = nn.MultiheadAttention(embed_dim=self.dim, num_heads=self.num_heads)
+            # self.fusion_attn = nn.MultiheadAttention(embed_dim=self.dim, num_heads=self.num_heads)
             self.fc = nn.Linear(in_features=self.dim, out_features=self.dim)
 
         elif self.fusion_type in ['ablation_only_sponsers', 'ablation_only_subjects']:
@@ -325,7 +329,8 @@ class Fusion(nn.Module):
             self.fc = nn.Linear(in_features=self.dim * 2, out_features=self.dim)
 
     def initialize(self):
-        if self.fusion_type in ['concat_mlp', 'self_attn_mean_mlp', 'concat2_self_attn_mlp', 'concat3_self_attn_mlp']:
+        if self.fusion_type in ['concat_mlp', 'self_attn_mean_mlp', 'concat2_self_attn_mlp', 'concat3_self_attn_mlp',
+                                'ablation_wo_both', 'ablation_only_sponsers', 'ablation_only_subjects']:
             nn.init.xavier_normal_(self.fc.weight)
 
     def forward(self, bill_embeddings, left_embeddings, right_embeddings):
@@ -375,10 +380,10 @@ class Fusion(nn.Module):
 
         elif self.fusion_type == 'ablation_wo_both':
             x = bill_embeddings
-            x = torch.unsqueeze(x, dim=0)
-            x, _ = self.fusion_attn(query=x, key=x, value=x)
-            x = torch.squeeze(x, dim=0)
-            x = self.fc(x)
+            # x = torch.unsqueeze(x, dim=0)
+            # x, _ = self.fusion_attn(query=x, key=x, value=x)
+            # x = torch.squeeze(x, dim=0)
+            # x = self.fc(x)
             return x
 
         elif self.fusion_type in ['ablation_only_sponsers', 'ablation_only_subjects']:
